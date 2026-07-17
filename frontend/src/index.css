@@ -1,0 +1,68 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,800;0,900;1,800;1,900&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #070707; /* Pure deep black */
+    color: #ffffff;
+    font-family: 'Space Mono', monospace;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Custom scrollbars for date picker horizontal scroll */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Neo-brutalist custom styling rules */
+.brutalist-border {
+  border: 1px solid #1f1f1f;
+}
+
+.brutalist-button-shadow {
+  box-shadow: 4px 4px 0px #111111;
+}
+
+.brutalist-button-shadow-green {
+  box-shadow: 4px 4px 0px rgba(34, 197, 94, 0.2);
+}
+
+.text-stroke-green {
+  -webkit-text-stroke: 1px #22c55e;
+  color: transparent;
+}
+
+/* Premium Animations */
+@keyframes fadeScale {
+  0% {
+    opacity: 0;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-scale {
+  animation: fadeScale 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideUpSticky {
+  0% {
+    transform: translateY(100%);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up-sticky {
+  animation: slideUpSticky 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
