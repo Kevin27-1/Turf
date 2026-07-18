@@ -32,7 +32,10 @@ if (databaseUrl) {
 
 // Initialise SQLite if not using PostgreSQL
 if (!isPostgres) {
-  const dbPath = path.join(__dirname, 'turf.db');
+  // Use /tmp directory on Vercel since the project directory is read-only
+  const dbPath = process.env.VERCEL 
+    ? '/tmp/turf.db' 
+    : path.join(__dirname, 'turf.db');
   sqliteDb = new sqlite3.Database(dbPath, (err) => {
     if (err) {
       console.error('Could not open SQLite database:', err.message);
