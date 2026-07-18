@@ -2,8 +2,8 @@ import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import admin from 'firebase-admin';
-import { getApps } from 'firebase-admin/app';
+import { initializeApp, cert, getApps } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,12 +22,12 @@ if (serviceAccountJson) {
   try {
     const serviceAccount = JSON.parse(serviceAccountJson);
     if (getApps().length === 0) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
+      initializeApp({
+        credential: cert(serviceAccount),
         projectId: serviceAccount.project_id
       });
     }
-    firestoreDb = admin.firestore();
+    firestoreDb = getFirestore();
     isFirestore = true;
     console.log('Database client: Configured for Firebase Cloud Firestore.');
   } catch (err) {
