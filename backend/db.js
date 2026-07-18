@@ -2,19 +2,42 @@ import pg from 'pg';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import admin from 'firebase-admin';
+import { getApps } from 'firebase-admin/app';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+let isFirestore = false;
 let isPostgres = false;
 let pgPool = null;
 let sqliteDb = null;
+let firestoreDb = null;
 
-// Determine if we should use PostgreSQL (check common Vercel/environment keys)
-const databaseUrl = process.env.DATABASE_URL || 
+// Determine if we should use Firestore (Service Account JSON)
+const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+if (serviceAccountJson) {
+  try {
+    const serviceAccount = JSON.parse(serviceAccountJson);
+    if (getApps().length === 0) {
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        projectId: serviceAccount.project_id
+      });
+    }
+    firestoreDb = admin.firestore();
+    isFirestore = true;
+    console.log('Database client: Configured for Firebase Cloud Firestore.');
+  } catch (err) {
+    console.error('Failed to initialize Firebase Admin SDK for Firestore:', err.message);
+  }
+}
+
+// Determine if we should use PostgreSQL (check common Vercel/environment keys) if not using Firestore
+const databaseUrl = !isFirestore && (process.env.DATABASE_URL || 
                     process.env.POSTGRES_URL || 
                     process.env.STORAGE_URL || 
-                    process.env.POSTGRES_PRISMA_URL;
+                    process.env.POSTGRES_PRISMA_URL);
 
 if (databaseUrl) {
   try {
@@ -29,12 +52,12 @@ if (databaseUrl) {
   } catch (err) {
     console.error('Failed to initialize PostgreSQL pool, falling back to SQLite:', err.message);
   }
-} else {
+} else if (!isFirestore) {
   console.log('DATABASE_URL not set. Database client: Configured for SQLite fallback.');
 }
 
-// Initialise SQLite if not using PostgreSQL
-if (!isPostgres) {
+// Initialise SQLite if not using PostgreSQL or Firestore
+if (!isPostgres && !isFirestore) {
   try {
     const sqlite3Module = await import('sqlite3');
     const sqlite3 = sqlite3Module.default;
@@ -150,8 +173,135 @@ async function initializePostgresTables() {
 }
 
 // Unified query function
-export const query = (text, params = []) => {
-  if (isPostgres) {
+export const query = async (text, params = []) => {
+  if (isFirestore) {
+    try {
+      const trimmedText = text.trim();
+      
+      // 1. SELECT id, name, phone, created_at FROM users WHERE phone = $1
+      // OR SELECT id FROM users WHERE phone = $1
+      if (trimmedText.includes('FROM users') && trimmedText.includes('phone = $1')) {
+        const snap = await firestoreDb.collection('users').where('phone', '==', params[0]).get();
+        const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        return { rows };
+      }
+      
+      // 2. INSERT INTO users (id, name, phone, created_at)
+      if (trimmedText.startsWith('INSERT INTO users')) {
+        await firestoreDb.collection('users').doc(params[0]).set({
+          name: params[1],
+          phone: params[2],
+          created_at: params[3]
+        });
+        return { rows: [] };
+      }
+      
+      // 3. SELECT COUNT(*) as count FROM slots WHERE date = $1
+      if (trimmedText.includes('COUNT(*)') && trimmedText.includes('FROM slots') && trimmedText.includes('date = $1')) {
+        const snap = await firestoreDb.collection('slots').where('date', '==', params[0]).get();
+        return { rows: [{ count: snap.size }] };
+      }
+      
+      // 4. INSERT INTO slots (id, date, start_time, end_time, status, price)
+      if (trimmedText.startsWith('INSERT INTO slots')) {
+        await firestoreDb.collection('slots').doc(params[0]).set({
+          date: params[1],
+          start_time: params[2],
+          end_time: params[3],
+          status: params[4],
+          price: params[5]
+        });
+        return { rows: [] };
+      }
+      
+      // 5. SELECT id, date, start_time, end_time, status, price FROM slots WHERE date = $1 ORDER BY start_time
+      if (trimmedText.includes('FROM slots WHERE date = $1')) {
+        const snap = await firestoreDb.collection('slots').where('date', '==', params[0]).get();
+        let rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        rows.sort((a, b) => a.start_time.localeCompare(b.start_time));
+        return { rows };
+      }
+      
+      // 6. SELECT status, date, start_time, end_time, price FROM slots WHERE id = $1
+      // OR SELECT date, start_time FROM slots WHERE id = $1
+      if (trimmedText.includes('FROM slots WHERE id = $1')) {
+        const doc = await firestoreDb.collection('slots').doc(params[0]).get();
+        return { rows: doc.exists ? [{ id: doc.id, ...doc.data() }] : [] };
+      }
+      
+      // 7. INSERT INTO bookings (id, slot_id, user_id, created_at)
+      if (trimmedText.startsWith('INSERT INTO bookings')) {
+        // Fetch denormalized info
+        const slotDoc = await firestoreDb.collection('slots').doc(params[1]).get();
+        const userDoc = await firestoreDb.collection('users').doc(params[2]).get();
+        
+        await firestoreDb.collection('bookings').doc(params[0]).set({
+          slot_id: params[1],
+          user_id: params[2],
+          created_at: params[3],
+          customer_name: userDoc.exists ? userDoc.data().name : '',
+          customer_phone: userDoc.exists ? userDoc.data().phone : '',
+          slot: slotDoc.exists ? slotDoc.data() : null
+        });
+        return { rows: [] };
+      }
+      
+      // 8. UPDATE slots SET status = $1 WHERE id = $2
+      if (trimmedText.startsWith('UPDATE slots SET status =')) {
+        await firestoreDb.collection('slots').doc(params[1]).update({ status: params[0] });
+        return { rows: [] };
+      }
+      
+      // 9. SELECT slot_id, user_id FROM bookings WHERE id = $1
+      if (trimmedText.includes('FROM bookings WHERE id = $1')) {
+        const doc = await firestoreDb.collection('bookings').doc(params[0]).get();
+        return { rows: doc.exists ? [{ id: doc.id, ...doc.data() }] : [] };
+      }
+      
+      // 10. DELETE FROM bookings WHERE id = $1
+      if (trimmedText.startsWith('DELETE FROM bookings WHERE id =')) {
+        await firestoreDb.collection('bookings').doc(params[0]).delete();
+        return { rows: [] };
+      }
+      
+      // 11. SELECT b.id, b.slot_id, b.created_at, b.user_id, u.name as customer_name, u.phone as customer_phone, ... WHERE b.user_id = $1
+      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('b.user_id = $1')) {
+        const snap = await firestoreDb.collection('bookings').where('user_id', '==', params[0]).get();
+        let rows = snap.docs.map(d => {
+          const data = d.data();
+          return {
+            id: d.id,
+            slot_id: data.slot_id,
+            user_id: data.user_id,
+            created_at: data.created_at,
+            customer_name: data.customer_name,
+            customer_phone: data.customer_phone,
+            date: data.slot?.date,
+            start_time: data.slot?.start_time,
+            end_time: data.slot?.end_time,
+            price: data.slot?.price
+          };
+        });
+        // Sort by date DESC, start_time DESC
+        rows.sort((a, b) => {
+          const dateComp = (b.date || '').localeCompare(a.date || '');
+          if (dateComp !== 0) return dateComp;
+          return (b.start_time || '').localeCompare(a.start_time || '');
+        });
+        return { rows };
+      }
+      
+      // 12. Transaction markers
+      if (trimmedText === 'BEGIN' || trimmedText === 'COMMIT' || trimmedText === 'ROLLBACK') {
+        return { rows: [] };
+      }
+      
+      throw new Error(`Unmapped SQL query for Firestore: ${text}`);
+    } catch (err) {
+      console.error('Firestore query mapping error:', err.message, 'SQL:', text);
+      throw err;
+    }
+  } else if (isPostgres) {
     return pgPool.query(text, params);
   } else {
     return new Promise((resolve, reject) => {
@@ -187,4 +337,8 @@ export const query = (text, params = []) => {
 };
 
 // Database utility helper to check active engine
-export const getDbEngine = () => (isPostgres ? 'PostgreSQL' : 'SQLite');
+export const getDbEngine = () => {
+  if (isFirestore) return 'Firestore';
+  if (isPostgres) return 'PostgreSQL';
+  return 'SQLite';
+};

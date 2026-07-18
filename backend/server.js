@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import admin from 'firebase-admin';
+import { getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { query, getDbEngine } from './db.js';
 import { seedSlots } from './seed.js';
@@ -11,10 +12,12 @@ import { authenticateUser } from './auth.js';
 
 dotenv.config();
 
-// Initialize Firebase Admin SDK
-admin.initializeApp({
-  projectId: process.env.FIREBASE_PROJECT_ID || 'turf-d68e9'
-});
+// Initialize Firebase Admin SDK if not already initialized by db.js
+if (getApps().length === 0) {
+  admin.initializeApp({
+    projectId: process.env.FIREBASE_PROJECT_ID || 'turf-d68e9'
+  });
+}
 
 const app = express();
 const PORT = process.env.PORT || 3001;
