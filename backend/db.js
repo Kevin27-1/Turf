@@ -25,6 +25,7 @@ if (databaseUrl) {
     });
     isPostgres = true;
     console.log('Database client: Configured for PostgreSQL.');
+    await initializePostgresTables();
   } catch (err) {
     console.error('Failed to initialize PostgreSQL pool, falling back to SQLite:', err.message);
   }
@@ -109,6 +110,43 @@ function initializeSqliteTables() {
       console.log('SQLite tables initialized successfully.');
     }
   });
+}
+
+// Initialize PostgreSQL tables if they do not exist
+async function initializePostgresTables() {
+  const ddl = `
+    CREATE TABLE IF NOT EXISTS slots (
+      id TEXT PRIMARY KEY,
+      date TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      status TEXT CHECK(status IN ('available', 'booked')) NOT NULL DEFAULT 'available',
+      price REAL NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT UNIQUE NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS bookings (
+      id TEXT PRIMARY KEY,
+      slot_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (slot_id) REFERENCES slots(id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+  `;
+
+  try {
+    await pgPool.query(ddl);
+    console.log('PostgreSQL tables initialized successfully.');
+  } catch (err) {
+    console.error('Error initializing PostgreSQL tables:', err.message);
+  }
 }
 
 // Unified query function
