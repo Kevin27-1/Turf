@@ -371,3 +371,5 @@ app.get('/api/health', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Backend server running on port ${PORT}`);
 });
+
+export default app;
