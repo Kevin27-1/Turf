@@ -1,5 +1,4 @@
 import pg from 'pg';
-import sqlite3 from 'sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -11,8 +10,11 @@ let isPostgres = false;
 let pgPool = null;
 let sqliteDb = null;
 
-// Determine if we should use PostgreSQL
-const databaseUrl = process.env.DATABASE_URL;
+// Determine if we should use PostgreSQL (check common Vercel/environment keys)
+const databaseUrl = process.env.DATABASE_URL || 
+                    process.env.POSTGRES_URL || 
+                    process.env.STORAGE_URL || 
+                    process.env.POSTGRES_PRISMA_URL;
 
 if (databaseUrl) {
   try {
@@ -32,34 +34,43 @@ if (databaseUrl) {
 
 // Initialise SQLite if not using PostgreSQL
 if (!isPostgres) {
-  // Use /tmp directory on Vercel since the project directory is read-only
-  const dbPath = process.env.VERCEL 
-    ? '/tmp/turf.db' 
-    : path.join(__dirname, 'turf.db');
-  sqliteDb = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-      console.error('Could not open SQLite database:', err.message);
-    } else {
-      console.log(`SQLite database opened at: ${dbPath}`);
-      // Perform database migration check first
-      sqliteDb.all("PRAGMA table_info(bookings)", [], (err, columns) => {
-        if (!err && columns && columns.length > 0) {
-          const hasCustomerName = columns.some(col => col.name === 'customer_name');
-          if (hasCustomerName) {
-            console.log("Old bookings table schema detected. Dropping bookings table for schema migration...");
-            sqliteDb.run("DROP TABLE bookings", (dropErr) => {
-              if (dropErr) {
-                console.error("Failed to drop bookings table:", dropErr.message);
-              }
-              initializeSqliteTables();
-            });
-            return;
+  try {
+    const sqlite3Module = await import('sqlite3');
+    const sqlite3 = sqlite3Module.default;
+    
+    // Use /tmp directory on Vercel since the project directory is read-only
+    const dbPath = process.env.VERCEL 
+      ? '/tmp/turf.db' 
+      : path.join(__dirname, 'turf.db');
+      
+    sqliteDb = new sqlite3.Database(dbPath, (err) => {
+      if (err) {
+        console.error('Could not open SQLite database:', err.message);
+      } else {
+        console.log(`SQLite database opened at: ${dbPath}`);
+        // Perform database migration check first
+        sqliteDb.all("PRAGMA table_info(bookings)", [], (err, columns) => {
+          if (!err && columns && columns.length > 0) {
+            const hasCustomerName = columns.some(col => col.name === 'customer_name');
+            if (hasCustomerName) {
+              console.log("Old bookings table schema detected. Dropping bookings table for schema migration...");
+              sqliteDb.run("DROP TABLE bookings", (dropErr) => {
+                if (dropErr) {
+                  console.error("Failed to drop bookings table:", dropErr.message);
+                }
+                initializeSqliteTables();
+              });
+              return;
+            }
           }
-        }
-        initializeSqliteTables();
-      });
-    }
-  });
+          initializeSqliteTables();
+        });
+      }
+    });
+  } catch (err) {
+    console.error("Failed to load SQLite module. SQLite fallback is disabled:", err.message);
+    console.error("Please ensure the DATABASE_URL environment variable is set to connect to PostgreSQL.");
+  }
 }
 
 // Initialize SQLite tables if they do not exist
