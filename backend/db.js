@@ -13,6 +13,8 @@ let isPostgres = false;
 let pgPool = null;
 let sqliteDb = null;
 let firestoreDb = null;
+let dbInitError = null;
+const isSaJsonDefined = !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
 // Determine if we should use Firestore (Service Account JSON)
 const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -29,6 +31,7 @@ if (serviceAccountJson) {
     isFirestore = true;
     console.log('Database client: Configured for Firebase Cloud Firestore.');
   } catch (err) {
+    dbInitError = err.message;
     console.error('Failed to initialize Firebase Admin SDK for Firestore:', err.message);
   }
 }
@@ -342,3 +345,10 @@ export const getDbEngine = () => {
   if (isPostgres) return 'PostgreSQL';
   return 'SQLite';
 };
+
+// Database utility helper to get diagnostics
+export const getDbDiagnostics = () => ({
+  isSaJsonDefined,
+  dbInitError,
+  hasDbUrl: !!databaseUrl
+});

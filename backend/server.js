@@ -6,7 +6,7 @@ import jwt from 'jsonwebtoken';
 import admin from 'firebase-admin';
 import { getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { query, getDbEngine } from './db.js';
+import { query, getDbEngine, getDbDiagnostics } from './db.js';
 import { seedSlots } from './seed.js';
 import { authenticateUser } from './auth.js';
 
@@ -368,7 +368,7 @@ app.post('/api/seed', async (req, res) => {
 
 // Root check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', db: getDbEngine() });
+  res.json({ status: 'ok', db: getDbEngine(), diagnostics: getDbDiagnostics() });
 });
 
 app.listen(PORT, () => {
