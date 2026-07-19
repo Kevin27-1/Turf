@@ -2100,62 +2100,58 @@ export default function App() {
                 </div>
               )}
 
-              {myBookings.length === 0 ? (
-                <div className="border border-neutral-900 bg-neutral-950/20 p-6 text-center">
-                  <XCircle className="w-8 h-8 text-neutral-700 mx-auto mb-2" />
-                  <p className="text-xs font-bold text-neutral-400 mb-1 uppercase tracking-wider">No Active Bookings</p>
-                  <p className="text-[10px] text-neutral-500 max-w-[200px] mx-auto">
-                    There are no booking passes registered to cancel.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4 max-h-[55vh] overflow-y-auto no-scrollbar pr-1 pb-6">
-                  {myBookings.map((b) => {
-                    const isEligible = isEligibleForCancellation(b);
-                    const isDeleting = cancelingId === b.id;
+              {(() => {
+                const activeBookings = myBookings.filter(b => b.booking_status === 'confirmed');
+                
+                if (activeBookings.length === 0) {
+                  return (
+                    <div className="border border-neutral-900 bg-neutral-950/20 p-6 text-center">
+                      <XCircle className="w-8 h-8 text-neutral-700 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-neutral-400 mb-1 uppercase tracking-wider">No Active Bookings</p>
+                      <p className="text-[10px] text-neutral-500 max-w-[200px] mx-auto">
+                        There are no active booking passes registered to cancel.
+                      </p>
+                    </div>
+                  );
+                }
 
-                    return (
-                      <div key={b.id} className="border border-neutral-900 bg-neutral-950/40 p-4">
-                        <div className="text-[9px] font-mono text-neutral-600 uppercase mb-2">
-                          ID: {b.id.substring(0, 8).toUpperCase()}
-                        </div>
+                return (
+                  <div className="space-y-4 max-h-[55vh] overflow-y-auto no-scrollbar pr-1 pb-6">
+                    {activeBookings.map((b) => {
+                      const isDeleting = cancelingId === b.id;
 
-                        <div className="text-sm font-black text-white uppercase">
-                          {formatTime12h(b.slot.start_time)} - {formatTime12h(b.slot.end_time)}
-                        </div>
+                      return (
+                        <div key={b.id} className="border border-neutral-900 bg-neutral-950/40 p-4">
+                          <div className="text-[9px] font-mono text-neutral-600 uppercase mb-2">
+                            ID: {b.id.substring(0, 8).toUpperCase()}
+                          </div>
 
-                        <div className="text-xs font-bold text-neutral-400 mt-1">
-                          Date: {formatDateDisplayShort(b.slot.date)}
-                        </div>
+                          <div className="text-sm font-black text-white uppercase">
+                            {formatTime12h(b.slot.start_time)} - {formatTime12h(b.slot.end_time)}
+                          </div>
 
-                        <div className="mt-4 pt-3 border-t border-neutral-900/60 flex items-center justify-between">
-                          {isEligible ? (
+                          <div className="text-xs font-bold text-neutral-400 mt-1">
+                            Date: {formatDateDisplayShort(b.slot.date)}
+                          </div>
+
+                          <div className="mt-4 pt-3 border-t border-neutral-900/60 flex items-center justify-between">
                             <button
-                              onClick={() => {
-                                if (confirm('Are you sure you want to cancel this booking? This will reopen the slot and process a full refund.')) {
-                                  handleCancelBooking(b.id);
-                                }
-                              }}
+                              onClick={() => setActiveCancellation(b)}
                               disabled={isDeleting}
                               className="px-4 py-2 border border-red-500 text-red-500 hover:bg-red-500/10 disabled:opacity-50 text-[10px] font-bold uppercase tracking-wider transition"
                             >
-                              {isDeleting ? 'Processing...' : 'Cancel Booking'}
+                              Cancel Booking
                             </button>
-                          ) : (
-                            <span className="text-[9px] uppercase font-bold text-neutral-600 tracking-wider flex items-center gap-1">
-                              <Lock className="w-3 h-3" />
-                              Locked (within 4 hours)
+                            <span className="text-[10px] font-bold text-[#22c55e]">
+                              ₹{b.slot.price}
                             </span>
-                          )}
-                          <span className="text-[10px] font-bold text-[#22c55e]">
-                            ₹{b.slot.price}
-                          </span>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
