@@ -231,7 +231,7 @@ async function initializePostgresTables() {
 export const query = async (text, params = []) => {
   if (isFirestore) {
     try {
-      const trimmedText = text.trim();
+      const trimmedText = text.replace(/\s+/g, ' ').trim();
       
       // 1. SELECT id, name, phone, created_at FROM users WHERE phone = $1
       // OR SELECT id FROM users WHERE phone = $1
