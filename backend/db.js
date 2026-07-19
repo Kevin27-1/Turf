@@ -30,9 +30,33 @@ if (serviceAccountJson) {
     firestoreDb = getFirestore();
     isFirestore = true;
     console.log('Database client: Configured for Firebase Cloud Firestore.');
+    await initializeFirestoreSettings();
   } catch (err) {
     dbInitError = err.message;
     console.error('Failed to initialize Firebase Admin SDK for Firestore:', err.message);
+  }
+}
+
+// Helper to seed default settings in Firestore
+async function initializeFirestoreSettings() {
+  try {
+    const docRef = firestoreDb.collection('admin_settings').doc('settings');
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      console.log('Initializing default admin settings in Firestore...');
+      await docRef.set({
+        turf_name: 'Naduparabil Turf',
+        operating_hours_start: '06:00',
+        operating_hours_end: '23:00',
+        slot_duration_minutes: 60,
+        price_per_slot: 1200,
+        advance_payment_percentage: 40,
+        cancellation_window_hours: 4,
+        sport_types_offered: 'Football, Cricket'
+      });
+    }
+  } catch (err) {
+    console.error('Failed to initialize Firestore admin settings:', err.message);
   }
 }
 
@@ -78,15 +102,17 @@ if (!isPostgres && !isFirestore) {
         // Perform database migration check first
         sqliteDb.all("PRAGMA table_info(bookings)", [], (err, columns) => {
           if (!err && columns && columns.length > 0) {
-            const hasRefundStatus = columns.some(col => col.name === 'refund_status');
-            if (!hasRefundStatus) {
-              console.log("Old bookings table schema detected (missing refund_status). Dropping tables for schema migration...");
+            const hasBalancePaymentStatus = columns.some(col => col.name === 'balance_payment_status');
+            if (!hasBalancePaymentStatus) {
+              console.log("Old bookings table schema detected (missing balance_payment_status). Dropping tables for schema migration...");
               sqliteDb.serialize(() => {
                 sqliteDb.run("DROP TABLE IF EXISTS bookings", (dropErr) => {
                   if (dropErr) console.error("Failed to drop bookings table:", dropErr.message);
                   sqliteDb.run("DROP TABLE IF EXISTS slots", (dropErr2) => {
                     if (dropErr2) console.error("Failed to drop slots table:", dropErr2.message);
-                    initializeSqliteTables();
+                    sqliteDb.run("DROP TABLE IF EXISTS admin_settings", (dropErr3) => {
+                      initializeSqliteTables();
+                    });
                   });
                 });
               });
@@ -109,12 +135,13 @@ async function checkAndMigratePostgres() {
     const tableCheck = await pgPool.query(`
       SELECT column_name 
       FROM information_schema.columns 
-      WHERE table_name = 'bookings' AND column_name = 'refund_status'
+      WHERE table_name = 'bookings' AND column_name = 'balance_payment_status'
     `);
     if (tableCheck.rows.length === 0) {
-      console.log("Migration: Dropping old tables to recreate with new cancellation policy schema in Postgres...");
+      console.log("Migration: Dropping old tables to recreate with new cancellation & admin settings schema in Postgres...");
       await pgPool.query("DROP TABLE IF EXISTS bookings CASCADE");
       await pgPool.query("DROP TABLE IF EXISTS slots CASCADE");
+      await pgPool.query("DROP TABLE IF EXISTS admin_settings CASCADE");
     }
   } catch (err) {
     console.warn("Postgres migration check failed, skipping drops:", err.message);
@@ -161,8 +188,21 @@ function initializeSqliteTables() {
       cancelled_at TEXT,
       refund_amount REAL,
       refund_status TEXT,
+      balance_payment_status TEXT DEFAULT 'pending',
       FOREIGN KEY (slot_id) REFERENCES slots(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_settings (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      turf_name TEXT NOT NULL,
+      operating_hours_start TEXT NOT NULL,
+      operating_hours_end TEXT NOT NULL,
+      slot_duration_minutes INTEGER NOT NULL,
+      price_per_slot REAL NOT NULL,
+      advance_payment_percentage INTEGER NOT NULL,
+      cancellation_window_hours INTEGER NOT NULL,
+      sport_types_offered TEXT NOT NULL
     );
   `;
 
@@ -171,6 +211,15 @@ function initializeSqliteTables() {
       console.error('Error initializing SQLite tables:', err.message);
     } else {
       console.log('SQLite tables initialized successfully.');
+      sqliteDb.run(`
+        INSERT OR IGNORE INTO admin_settings (
+          id, turf_name, operating_hours_start, operating_hours_end, 
+          slot_duration_minutes, price_per_slot, advance_payment_percentage, 
+          cancellation_window_hours, sport_types_offered
+        ) VALUES (1, 'Naduparabil Turf', '06:00', '23:00', 60, 1200, 40, 4, 'Football, Cricket')
+      `, (seedErr) => {
+        if (seedErr) console.error('Failed to seed SQLite default settings:', seedErr.message);
+      });
     }
   });
 }
@@ -214,14 +263,35 @@ async function initializePostgresTables() {
       cancelled_at TEXT,
       refund_amount REAL,
       refund_status TEXT,
+      balance_payment_status TEXT DEFAULT 'pending',
       FOREIGN KEY (slot_id) REFERENCES slots(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS admin_settings (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      turf_name TEXT NOT NULL,
+      operating_hours_start TEXT NOT NULL,
+      operating_hours_end TEXT NOT NULL,
+      slot_duration_minutes INTEGER NOT NULL,
+      price_per_slot REAL NOT NULL,
+      advance_payment_percentage INTEGER NOT NULL,
+      cancellation_window_hours INTEGER NOT NULL,
+      sport_types_offered TEXT NOT NULL
     );
   `;
 
   try {
     await pgPool.query(ddl);
     console.log('PostgreSQL tables initialized successfully.');
+    await pgPool.query(`
+      INSERT INTO admin_settings (
+        id, turf_name, operating_hours_start, operating_hours_end, 
+        slot_duration_minutes, price_per_slot, advance_payment_percentage, 
+        cancellation_window_hours, sport_types_offered
+      ) VALUES (1, 'Naduparabil Turf', '06:00', '23:00', 60, 1200, 40, 4, 'Football, Cricket')
+      ON CONFLICT (id) DO NOTHING
+    `);
   } catch (err) {
     console.error('Error initializing PostgreSQL tables:', err.message);
   }
@@ -300,6 +370,7 @@ export const query = async (text, params = []) => {
           razorpay_order_id: params[8],
           payment_verified: params[9] === true || params[9] === 1,
           booking_status: params[10] || 'pending',
+          balance_payment_status: 'pending',
           customer_name: userDoc.exists ? userDoc.data().name : '',
           customer_phone: userDoc.exists ? userDoc.data().phone : '',
           slot: slotDoc.exists ? slotDoc.data() : null
@@ -520,12 +591,178 @@ export const query = async (text, params = []) => {
         });
         return { rows: [] };
       }
-      
+
+      // 11g. SELECT * FROM admin_settings
+      if (trimmedText.includes('FROM admin_settings')) {
+        const doc = await firestoreDb.collection('admin_settings').doc('settings').get();
+        if (doc.exists) {
+          const data = doc.data();
+          return {
+            rows: [{
+              id: 1,
+              ...data
+            }]
+          };
+        }
+        return { rows: [] };
+      }
+
+      // 11h. UPDATE admin_settings
+      if (trimmedText.startsWith('UPDATE admin_settings')) {
+        await firestoreDb.collection('admin_settings').doc('settings').update({
+          turf_name: params[0],
+          operating_hours_start: params[1],
+          operating_hours_end: params[2],
+          slot_duration_minutes: params[3],
+          price_per_slot: params[4],
+          advance_payment_percentage: params[5],
+          cancellation_window_hours: params[6],
+          sport_types_offered: params[7]
+        });
+        return { rows: [] };
+      }
+
+      // 11i. SELECT bookings join slots join users WHERE s.date = $1 (Today's Bookings)
+      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('s.date = $1')) {
+        const snap = await firestoreDb.collection('bookings').get();
+        const rows = [];
+        for (const doc of snap.docs) {
+          const data = doc.data();
+          if (data.slot && data.slot.date === params[0]) {
+            rows.push({
+              id: doc.id,
+              slot_id: data.slot_id,
+              user_id: data.user_id,
+              created_at: data.created_at,
+              customer_name: data.customer_name,
+              customer_phone: data.customer_phone,
+              total_amount: data.total_amount,
+              advance_amount: data.advance_amount,
+              advance_paid_amount: data.advance_paid_amount,
+              balance_amount: data.balance_amount,
+              booking_status: data.booking_status,
+              cancellation_deadline: data.cancellation_deadline,
+              balance_payment_status: data.balance_payment_status || 'pending',
+              date: data.slot.date,
+              start_time: data.slot.start_time,
+              end_time: data.slot.end_time,
+              price: data.slot.price
+            });
+          }
+        }
+        rows.sort((a, b) => (a.start_time || '').localeCompare(b.start_time || ''));
+        return { rows };
+      }
+
+      // 11j. SELECT bookings join slots join users WHERE b.balance_payment_status = $1 (Pending Balances)
+      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('b.balance_payment_status = $1')) {
+        const snap = await firestoreDb.collection('bookings')
+          .where('balance_payment_status', '==', params[0])
+          .where('booking_status', '==', params[1])
+          .get();
+        const rows = snap.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            slot_id: data.slot_id,
+            user_id: data.user_id,
+            created_at: data.created_at,
+            customer_name: data.customer_name,
+            customer_phone: data.customer_phone,
+            total_amount: data.total_amount,
+            advance_amount: data.advance_amount,
+            advance_paid_amount: data.advance_paid_amount,
+            balance_amount: data.balance_amount,
+            booking_status: data.booking_status,
+            cancellation_deadline: data.cancellation_deadline,
+            balance_payment_status: data.balance_payment_status || 'pending',
+            date: data.slot?.date,
+            start_time: data.slot?.start_time,
+            end_time: data.slot?.end_time,
+            price: data.slot?.price
+          };
+        });
+        rows.sort((a, b) => {
+          const dateComp = (a.date || '').localeCompare(b.date || '');
+          if (dateComp !== 0) return dateComp;
+          return (a.start_time || '').localeCompare(b.start_time || '');
+        });
+        return { rows };
+      }
+
+      // 11k. SELECT bookings join slots join users WHERE b.booking_status = $1 ORDER BY cancelled_at DESC (Cancellations Log)
+      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('b.booking_status = $1') && trimmedText.includes('ORDER BY b.cancelled_at')) {
+        const snap = await firestoreDb.collection('bookings')
+          .where('booking_status', '==', params[0])
+          .get();
+        const rows = snap.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            slot_id: data.slot_id,
+            user_id: data.user_id,
+            created_at: data.created_at,
+            customer_name: data.customer_name,
+            customer_phone: data.customer_phone,
+            total_amount: data.total_amount,
+            advance_amount: data.advance_amount,
+            advance_paid_amount: data.advance_paid_amount,
+            balance_amount: data.balance_amount,
+            booking_status: data.booking_status,
+            cancellation_deadline: data.cancellation_deadline,
+            cancelled_at: data.cancelled_at,
+            refund_amount: data.refund_amount,
+            refund_status: data.refund_status,
+            balance_payment_status: data.balance_payment_status || 'pending',
+            date: data.slot?.date,
+            start_time: data.slot?.start_time,
+            end_time: data.slot?.end_time,
+            price: data.slot?.price
+          };
+        });
+        rows.sort((a, b) => (b.cancelled_at || '').localeCompare(a.cancelled_at || ''));
+        return { rows };
+      }
+
+      // 11l. UPDATE bookings SET balance_payment_status = $1 WHERE id = $2
+      if (trimmedText.startsWith('UPDATE bookings SET balance_payment_status =') || trimmedText.startsWith('UPDATE bookings SET balance_payment_status=')) {
+        await firestoreDb.collection('bookings').doc(params[1]).update({
+          balance_payment_status: params[0]
+        });
+        return { rows: [] };
+      }
+
+      // 11m. UPDATE bookings SET booking_status = $1 WHERE id = $2 (For Completion / No-Show)
+      if (trimmedText.startsWith('UPDATE bookings SET booking_status = $1 WHERE id = $2') || trimmedText.startsWith('UPDATE bookings SET booking_status=$1 WHERE id=$2')) {
+        await firestoreDb.collection('bookings').doc(params[1]).update({
+          booking_status: params[0]
+        });
+        return { rows: [] };
+      }
+
+      // 11n. SELECT bookings for stats (excluding pending)
+      if (trimmedText.includes('FROM bookings b') && trimmedText.includes("booking_status != 'pending'") && trimmedText.includes("s.date")) {
+        const snap = await firestoreDb.collection('bookings').where('booking_status', '!=', 'pending').get();
+        const rows = snap.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            total_amount: data.total_amount,
+            advance_paid_amount: data.advance_paid_amount,
+            balance_amount: data.balance_amount,
+            booking_status: data.booking_status,
+            balance_payment_status: data.balance_payment_status || 'pending',
+            date: data.slot?.date
+          };
+        });
+        return { rows };
+      }
+
       // 12. Transaction markers
       if (trimmedText === 'BEGIN' || trimmedText === 'COMMIT' || trimmedText === 'ROLLBACK') {
         return { rows: [] };
       }
-      
+
       throw new Error(`Unmapped SQL query for Firestore: ${text}`);
     } catch (err) {
       console.error('Firestore query mapping error:', err.message, 'SQL:', text);

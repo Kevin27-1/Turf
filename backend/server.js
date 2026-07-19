@@ -20,8 +20,26 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET || 'placeholderKeySecret',
 });
 
-const ADVANCE_PAYMENT_PERCENTAGE = 40; // 40% advance payment required online
-const CANCELLATION_WINDOW_HOURS = 4; // 4 hours cancellation window before slot starts
+async function getAdminSettings() {
+  try {
+    const res = await query('SELECT * FROM admin_settings LIMIT 1');
+    if (res.rows && res.rows.length > 0) {
+      return res.rows[0];
+    }
+  } catch (err) {
+    console.error('Failed to load admin settings from DB, using fallback defaults:', err.message);
+  }
+  return {
+    turf_name: 'Naduparabil Turf',
+    operating_hours_start: '06:00',
+    operating_hours_end: '23:00',
+    slot_duration_minutes: 60,
+    price_per_slot: 1200,
+    advance_payment_percentage: 40,
+    cancellation_window_hours: 4,
+    sport_types_offered: 'Football, Cricket'
+  };
+}
 
 
 // Initialize Firebase Admin SDK if not already initialized by db.js
@@ -286,7 +304,9 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
 
     const slot = slotRes.rows[0];
     const totalPrice = slot.price;
-    const advanceAmount = Math.round((totalPrice * ADVANCE_PAYMENT_PERCENTAGE) / 100);
+    const settings = await getAdminSettings();
+    const advPct = settings.advance_payment_percentage || 40;
+    const advanceAmount = Math.round((totalPrice * advPct) / 100);
     const balanceAmount = totalPrice - advanceAmount;
 
     // 4. Create Razorpay order (amount in paise, e.g. ₹400 = 40000 paise)
@@ -388,13 +408,15 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden: You cannot confirm a booking for another user.' });
     }
 
-    // Calculate cancellation_deadline = slot.start_time - 4 hours (in IST timezone +05:30)
+    // Calculate cancellation_deadline = slot.start_time - cancellation_window_hours (in IST timezone +05:30)
     const [year, month, day] = booking.date.split('-').map(Number);
     const [hour, minute] = booking.start_time.split(':').map(Number);
     const dateStr = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
     const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
     const slotStart = new Date(`${dateStr}T${timeStr}+05:30`);
-    const deadline = new Date(slotStart.getTime() - CANCELLATION_WINDOW_HOURS * 60 * 60 * 1000);
+    const settings = await getAdminSettings();
+    const cancelWindow = settings.cancellation_window_hours || 4;
+    const deadline = new Date(slotStart.getTime() - cancelWindow * 60 * 60 * 1000);
     const cancellationDeadline = deadline.toISOString();
 
     // 3. Update database status in a transaction
@@ -600,6 +622,319 @@ app.post('/api/bookings/:id/cancel', authenticateUser, async (req, res) => {
     }
     console.error('Error cancelling booking:', err);
     res.status(500).json({ error: 'Failed to process booking cancellation' });
+  }
+});
+
+// JWT Admin Authentication Middleware
+const authenticateAdmin = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: Missing admin token' });
+  }
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+    req.admin = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid admin token' });
+  }
+};
+
+// POST /api/admin/login
+app.post('/api/admin/login', (req, res) => {
+  const { email, password } = req.body;
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@naduparabil.com';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+
+  if (email === adminEmail && password === adminPassword) {
+    const token = jwt.sign({ email, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
+    return res.json({ token });
+  } else {
+    return res.status(401).json({ error: 'Invalid admin credentials' });
+  }
+});
+
+// GET /api/admin/settings
+app.get('/api/admin/settings', authenticateAdmin, async (req, res) => {
+  try {
+    const settings = await getAdminSettings();
+    res.json(settings);
+  } catch (err) {
+    console.error('Failed to get settings:', err);
+    res.status(500).json({ error: 'Failed to retrieve admin settings' });
+  }
+});
+
+// PUT /api/admin/settings
+app.put('/api/admin/settings', authenticateAdmin, async (req, res) => {
+  const {
+    turf_name,
+    operating_hours_start,
+    operating_hours_end,
+    slot_duration_minutes,
+    price_per_slot,
+    advance_payment_percentage,
+    cancellation_window_hours,
+    sport_types_offered
+  } = req.body;
+
+  try {
+    await query(
+      `UPDATE admin_settings 
+       SET turf_name = $1, operating_hours_start = $2, operating_hours_end = $3, 
+           slot_duration_minutes = $4, price_per_slot = $5, advance_payment_percentage = $6, 
+           cancellation_window_hours = $7, sport_types_offered = $8 
+       WHERE id = 1`,
+      [
+        turf_name,
+        operating_hours_start,
+        operating_hours_end,
+        parseInt(slot_duration_minutes, 10),
+        parseFloat(price_per_slot),
+        parseInt(advance_payment_percentage, 10),
+        parseInt(cancellation_window_hours, 10),
+        sport_types_offered
+      ]
+    );
+    res.json({ success: true, message: 'Admin settings updated successfully' });
+  } catch (err) {
+    console.error('Failed to update settings:', err);
+    res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+// GET /api/admin/bookings
+app.get('/api/admin/bookings', authenticateAdmin, async (req, res) => {
+  const { date, balance_payment_status, booking_status } = req.query;
+
+  try {
+    let sql = '';
+    let params = [];
+
+    if (date) {
+      // Today's Bookings
+      sql = `
+        SELECT b.id, b.slot_id, b.created_at, b.user_id,
+               u.name as customer_name, u.phone as customer_phone,
+               b.total_amount, b.advance_amount, b.advance_paid_amount, b.balance_amount, b.booking_status,
+               b.cancellation_deadline, b.balance_payment_status,
+               s.date, s.start_time, s.end_time, s.price
+        FROM bookings b
+        JOIN slots s ON b.slot_id = s.id
+        JOIN users u ON b.user_id = u.id
+        WHERE s.date = $1
+        ORDER BY s.start_time ASC
+      `;
+      params = [date];
+    } else if (balance_payment_status && booking_status) {
+      // Pending Balances
+      sql = `
+        SELECT b.id, b.slot_id, b.created_at, b.user_id,
+               u.name as customer_name, u.phone as customer_phone,
+               b.total_amount, b.advance_amount, b.advance_paid_amount, b.balance_amount, b.booking_status,
+               b.cancellation_deadline, b.balance_payment_status,
+               s.date, s.start_time, s.end_time, s.price
+        FROM bookings b
+        JOIN slots s ON b.slot_id = s.id
+        JOIN users u ON b.user_id = u.id
+        WHERE b.balance_payment_status = $1 AND b.booking_status = $2
+        ORDER BY s.date ASC, s.start_time ASC
+      `;
+      params = [balance_payment_status, booking_status];
+    } else if (booking_status === 'cancelled') {
+      // Cancellations Log
+      sql = `
+        SELECT b.id, b.slot_id, b.created_at, b.user_id,
+               u.name as customer_name, u.phone as customer_phone,
+               b.total_amount, b.advance_amount, b.advance_paid_amount, b.balance_amount, b.booking_status,
+               b.cancellation_deadline, b.cancelled_at, b.refund_amount, b.refund_status,
+               s.date, s.start_time, s.end_time, s.price
+        FROM bookings b
+        JOIN slots s ON b.slot_id = s.id
+        JOIN users u ON b.user_id = u.id
+        WHERE b.booking_status = $1
+        ORDER BY b.cancelled_at DESC
+      `;
+      params = [booking_status];
+    } else {
+      return res.status(400).json({ error: 'Missing filter parameters' });
+    }
+
+    const bookingsRes = await query(sql, params);
+    res.json(bookingsRes.rows);
+  } catch (err) {
+    console.error('Failed to get admin bookings:', err);
+    res.status(500).json({ error: 'Failed to retrieve bookings list' });
+  }
+});
+
+// POST /api/admin/bookings/:id/pay-balance
+app.post('/api/admin/bookings/:id/pay-balance', authenticateAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await query(
+      "UPDATE bookings SET balance_payment_status = $1 WHERE id = $2",
+      ['paid_at_venue', id]
+    );
+    res.json({ success: true, message: 'Balance marked as paid at venue' });
+  } catch (err) {
+    console.error('Failed to update balance payment:', err);
+    res.status(500).json({ error: 'Failed to update balance payment' });
+  }
+});
+
+// POST /api/admin/bookings/:id/complete
+app.post('/api/admin/bookings/:id/complete', authenticateAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await query(
+      "UPDATE bookings SET booking_status = $1 WHERE id = $2",
+      ['completed', id]
+    );
+    res.json({ success: true, message: 'Booking marked as completed' });
+  } catch (err) {
+    console.error('Failed to update booking status:', err);
+    res.status(500).json({ error: 'Failed to update booking status' });
+  }
+});
+
+// POST /api/admin/bookings/:id/no-show
+app.post('/api/admin/bookings/:id/no-show', authenticateAdmin, async (req, res) => {
+  const { id } = req.params;
+  try {
+    await query(
+      "UPDATE bookings SET booking_status = $1 WHERE id = $2",
+      ['no_show', id]
+    );
+    res.json({ success: true, message: 'Booking marked as no-show' });
+  } catch (err) {
+    console.error('Failed to update booking status:', err);
+    res.status(500).json({ error: 'Failed to update booking status' });
+  }
+});
+
+// POST /api/admin/slots/block
+app.post('/api/admin/slots/block', authenticateAdmin, async (req, res) => {
+  const { slot_ids } = req.body;
+  if (!slot_ids || !Array.isArray(slot_ids)) {
+    return res.status(400).json({ error: 'Invalid slot_ids' });
+  }
+
+  try {
+    await query('BEGIN');
+    for (const slotId of slot_ids) {
+      await query("UPDATE slots SET status = $1 WHERE id = $2", ['blocked', slotId]);
+    }
+    await query('COMMIT');
+    res.json({ success: true, message: 'Slots blocked successfully' });
+  } catch (err) {
+    try { await query('ROLLBACK'); } catch (rb) {}
+    console.error('Failed to block slots:', err);
+    res.status(500).json({ error: 'Failed to block slots' });
+  }
+});
+
+// POST /api/admin/slots/unblock
+app.post('/api/admin/slots/unblock', authenticateAdmin, async (req, res) => {
+  const { slot_ids } = req.body;
+  if (!slot_ids || !Array.isArray(slot_ids)) {
+    return res.status(400).json({ error: 'Invalid slot_ids' });
+  }
+
+  try {
+    await query('BEGIN');
+    for (const slotId of slot_ids) {
+      await query("UPDATE slots SET status = $1 WHERE id = $2", ['available', slotId]);
+    }
+    await query('COMMIT');
+    res.json({ success: true, message: 'Slots unblocked successfully' });
+  } catch (err) {
+    try { await query('ROLLBACK'); } catch (rb) {}
+    console.error('Failed to unblock slots:', err);
+    res.status(500).json({ error: 'Failed to unblock slots' });
+  }
+});
+
+// GET /api/admin/stats
+app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
+  try {
+    // Fetch all bookings that are confirmed or completed (non-pending)
+    const bookingsRes = await query(`
+      SELECT b.total_amount, b.advance_paid_amount, b.balance_amount, b.booking_status, b.balance_payment_status, s.date
+      FROM bookings b
+      JOIN slots s ON b.slot_id = s.id
+      WHERE b.booking_status != 'pending'
+    `);
+    const bookings = bookingsRes.rows;
+
+    const today = new Date();
+    
+    // Calculate week start (Monday) and end (Sunday) in local time
+    const currentDay = today.getDay();
+    const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + distanceToMonday);
+    monday.setHours(0, 0, 0, 0);
+
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+
+    // Calculate month boundaries
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0);
+    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    let bookingsThisWeek = 0;
+    let revenueThisWeek = 0;
+    let bookingsThisMonth = 0;
+
+    bookings.forEach(b => {
+      if (!b.date) return;
+      const [year, month, day] = b.date.split('-').map(Number);
+      const slotDate = new Date(year, month - 1, day, 12, 0, 0, 0); // midday comparison
+
+      const isConfirmedOrCompleted = b.booking_status === 'confirmed' || b.booking_status === 'completed';
+
+      if (slotDate >= monday && slotDate <= sunday) {
+        if (isConfirmedOrCompleted) {
+          bookingsThisWeek++;
+          const balancePaid = b.balance_payment_status === 'paid_at_venue' ? b.balance_amount : 0;
+          revenueThisWeek += (b.advance_paid_amount || 0) + balancePaid;
+        }
+      }
+
+      if (slotDate >= startOfMonth && slotDate <= endOfMonth) {
+        if (isConfirmedOrCompleted) {
+          bookingsThisMonth++;
+        }
+      }
+    });
+
+    res.json({
+      bookingsThisWeek,
+      revenueThisWeek,
+      bookingsThisMonth
+    });
+  } catch (err) {
+    console.error('Failed to get stats:', err);
+    res.status(500).json({ error: 'Failed to retrieve stats' });
+  }
+});
+
+// GET /api/settings/public
+app.get('/api/settings/public', async (req, res) => {
+  try {
+    const settings = await getAdminSettings();
+    res.json({
+      turf_name: settings.turf_name,
+      sport_types_offered: settings.sport_types_offered ? settings.sport_types_offered.split(',').map(s => s.trim()) : []
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to retrieve public settings' });
   }
 });
 

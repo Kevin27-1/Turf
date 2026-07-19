@@ -79,8 +79,28 @@ const formatDateDisplayLong = (dateStr) => {
 };
 
 export default function App() {
+  const isAdminPath = window.location.pathname === '/admin';
+  if (isAdminPath) {
+    return <AdminApp />;
+  }
+
   const [currentTab, setCurrentTab] = useState('home'); // 'home', 'book', 'passes', 'profile'
   const [profileSub, setProfileSub] = useState(null); // null, 'edit', 'faq', 'settings', 'help', 'cancel-board', 'invite', 'rate'
+  const [publicSettings, setPublicSettings] = useState({
+    turf_name: 'Naduparabil Turf',
+    sport_types_offered: ['Football', 'Cricket']
+  });
+
+  useEffect(() => {
+    fetch('/api/settings/public')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.turf_name) {
+          setPublicSettings(data);
+        }
+      })
+      .catch(err => console.error('Failed to load public settings:', err));
+  }, []);
 
   // Custom Phone OTP Auth State
   const [user, setUser] = useState(null); // Contains { id, name, phone }
@@ -515,8 +535,8 @@ export default function App() {
         key: configData.keyId,
         amount: holdData.advanceAmount * 100, // in paise
         currency: 'INR',
-        name: 'Naduparabil Turf',
-        description: `Advance Payment (40%) for Turf Reservation`,
+        name: publicSettings.turf_name,
+        description: 'Advance Payment for Turf Reservation',
         order_id: holdData.orderId,
         handler: async function (response) {
           setBookingLoading(true);
@@ -915,14 +935,23 @@ export default function App() {
                 </div>
               )}
 
-              <h1 className="text-[2.25rem] font-black tracking-tighter uppercase text-white leading-none">
-                Naduparabil
-              </h1>
-              <h1 className="text-[3.5rem] font-black tracking-tighter uppercase text-[#22c55e] leading-none mt-0.5">
-                Turf
-              </h1>
+              {(() => {
+                const nameParts = publicSettings.turf_name.split(' ');
+                const firstName = nameParts[0] || 'Naduparabil';
+                const lastName = nameParts.slice(1).join(' ') || 'Turf';
+                return (
+                  <>
+                    <h1 className="text-[2.25rem] font-black tracking-tighter uppercase text-white leading-none">
+                      {firstName}
+                    </h1>
+                    <h1 className="text-[3.5rem] font-black tracking-tighter uppercase text-[#22c55e] leading-none mt-0.5">
+                      {lastName}
+                    </h1>
+                  </>
+                );
+              })()}
               <p className="text-neutral-300 text-[9px] font-bold uppercase tracking-widest mt-2 max-w-[280px]">
-                Alakode's Premier 5-a-side Turf
+                {publicSettings.turf_name}'s Premier Turf Arena
               </p>
 
               <button
@@ -2578,6 +2607,1128 @@ export default function App() {
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+// ==========================================
+// ADMIN DASHBOARD APPLICATION (STEP 4)
+// ==========================================
+function AdminApp() {
+  const [adminToken, setAdminToken] = useState(localStorage.getItem('admin_token'));
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // Nav Tab
+  const [activeTab, setActiveTab] = useState('today');
+
+  // Today Tab Date
+  const getISTTodayDateString = () => {
+    const d = new Date();
+    // Convert to IST (UTC +5:30)
+    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+    const nd = new Date(utc + (3600000 * 5.5));
+    const year = nd.getFullYear();
+    const month = String(nd.getMonth() + 1).padStart(2, '0');
+    const day = String(nd.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const [todayDate, setTodayDate] = useState(getISTTodayDateString());
+
+  // Calendar tab date
+  const [calendarDate, setCalendarDate] = useState(getISTTodayDateString());
+  const [calendarSlots, setCalendarSlots] = useState([]);
+  const [selectedSlotDetails, setSelectedSlotDetails] = useState(null);
+
+  // Block Slots tab state
+  const [blockDate, setBlockDate] = useState(getISTTodayDateString());
+  const [blockSlotsList, setBlockSlotsList] = useState([]);
+  const [selectedBlockSlotIds, setSelectedBlockSlotIds] = useState([]);
+
+  // Data state
+  const [bookings, setBookings] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [settings, setSettings] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState(null);
+  
+  // Settings Form State
+  const [turfName, setTurfName] = useState('');
+  const [hoursStart, setHoursStart] = useState('');
+  const [hoursEnd, setHoursEnd] = useState('');
+  const [duration, setDuration] = useState(60);
+  const [price, setPrice] = useState(1200);
+  const [advancePct, setAdvancePct] = useState(40);
+  const [cancelHours, setCancelHours] = useState(4);
+  const [sports, setSports] = useState('');
+  const [settingsSuccess, setSettingsSuccess] = useState('');
+
+  // Auto-refresh when tab changes
+  useEffect(() => {
+    if (!adminToken) return;
+    loadTabData();
+  }, [activeTab, todayDate, calendarDate, blockDate, adminToken]);
+
+  const loadTabData = async () => {
+    setLoading(true);
+    try {
+      if (activeTab === 'today') {
+        await fetchBookingsToday();
+      } else if (activeTab === 'calendar') {
+        await fetchCalendarSlots();
+      } else if (activeTab === 'block') {
+        await fetchBlockSlots();
+      } else if (activeTab === 'pending') {
+        await fetchPendingBalances();
+      } else if (activeTab === 'cancellations') {
+        await fetchCancellations();
+      } else if (activeTab === 'settings') {
+        await fetchSettings();
+      } else if (activeTab === 'stats') {
+        await fetchStats();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchBookingsToday = async () => {
+    const res = await fetch(`/api/admin/bookings?date=${todayDate}`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setBookings(data);
+    }
+  };
+
+  const fetchCalendarSlots = async () => {
+    const slotsRes = await fetch(`/api/slots?date=${calendarDate}`);
+    if (slotsRes.ok) {
+      const slotsData = await slotsRes.json();
+      setCalendarSlots(slotsData);
+    }
+    const bRes = await fetch(`/api/admin/bookings?date=${calendarDate}`, {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (bRes.ok) {
+      const bData = await bRes.json();
+      setBookings(bData);
+    }
+  };
+
+  const fetchBlockSlots = async () => {
+    const slotsRes = await fetch(`/api/slots?date=${blockDate}`);
+    if (slotsRes.ok) {
+      const slotsData = await slotsRes.json();
+      setBlockSlotsList(slotsData);
+      setSelectedBlockSlotIds([]);
+    }
+  };
+
+  const fetchPendingBalances = async () => {
+    const res = await fetch('/api/admin/bookings?balance_payment_status=pending&booking_status=confirmed', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setBookings(data);
+    }
+  };
+
+  const fetchCancellations = async () => {
+    const res = await fetch('/api/admin/bookings?booking_status=cancelled', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setBookings(data);
+    }
+  };
+
+  const fetchSettings = async () => {
+    const res = await fetch('/api/admin/settings', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setSettings(data);
+      setTurfName(data.turf_name);
+      setHoursStart(data.operating_hours_start);
+      setHoursEnd(data.operating_hours_end);
+      setDuration(data.slot_duration_minutes);
+      setPrice(data.price_per_slot);
+      setAdvancePct(data.advance_payment_percentage);
+      setCancelHours(data.cancellation_window_hours);
+      setSports(data.sport_types_offered);
+      setSettingsSuccess('');
+    }
+  };
+
+  const fetchStats = async () => {
+    const res = await fetch('/api/admin/stats', {
+      headers: { 'Authorization': `Bearer ${adminToken}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setStats(data);
+    }
+  };
+
+  const handleAdminLogin = async (e) => {
+    e.preventDefault();
+    setLoginError('');
+    setLoginLoading(true);
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Login failed');
+      }
+      localStorage.setItem('admin_token', data.token);
+      setAdminToken(data.token);
+    } catch (err) {
+      setLoginError(err.message);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleAdminSignOut = () => {
+    localStorage.removeItem('admin_token');
+    setAdminToken(null);
+    window.location.reload();
+  };
+
+  const markBalancePaid = async (bookingId) => {
+    if (!confirm('Mark balance payment as paid at venue?')) return;
+    setActionLoadingId(bookingId);
+    try {
+      const res = await fetch(`/api/admin/bookings/${bookingId}/pay-balance`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      if (res.ok) {
+        await loadTabData();
+        if (selectedSlotDetails && selectedSlotDetails.booking && selectedSlotDetails.booking.id === bookingId) {
+          setSelectedSlotDetails({
+            ...selectedSlotDetails,
+            booking: {
+              ...selectedSlotDetails.booking,
+              balance_payment_status: 'paid_at_venue'
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const markCompleted = async (bookingId) => {
+    if (!confirm('Mark booking as completed?')) return;
+    setActionLoadingId(bookingId);
+    try {
+      const res = await fetch(`/api/admin/bookings/${bookingId}/complete`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      if (res.ok) {
+        await loadTabData();
+        if (selectedSlotDetails && selectedSlotDetails.booking && selectedSlotDetails.booking.id === bookingId) {
+          setSelectedSlotDetails({
+            ...selectedSlotDetails,
+            booking: {
+              ...selectedSlotDetails.booking,
+              booking_status: 'completed'
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const markNoShow = async (bookingId) => {
+    if (!confirm('Mark player as no-show?')) return;
+    setActionLoadingId(bookingId);
+    try {
+      const res = await fetch(`/api/admin/bookings/${bookingId}/no-show`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      if (res.ok) {
+        await loadTabData();
+        if (selectedSlotDetails && selectedSlotDetails.booking && selectedSlotDetails.booking.id === bookingId) {
+          setSelectedSlotDetails({
+            ...selectedSlotDetails,
+            booking: {
+              ...selectedSlotDetails.booking,
+              booking_status: 'no_show'
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const toggleBlockSlot = async (slot, shouldBlock) => {
+    setActionLoadingId(slot.id);
+    try {
+      const url = shouldBlock ? '/api/admin/slots/block' : '/api/admin/slots/unblock';
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({ slot_ids: [slot.id] })
+      });
+      if (res.ok) {
+        await loadTabData();
+        setSelectedSlotDetails(null);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleBulkBlockAction = async (shouldBlock) => {
+    if (selectedBlockSlotIds.length === 0) return;
+    setLoading(true);
+    try {
+      const url = shouldBlock ? '/api/admin/slots/block' : '/api/admin/slots/unblock';
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({ slot_ids: selectedBlockSlotIds })
+      });
+      if (res.ok) {
+        await loadTabData();
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSettingsSave = async (e) => {
+    e.preventDefault();
+    setSettingsSuccess('');
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          turf_name: turfName,
+          operating_hours_start: hoursStart,
+          operating_hours_end: hoursEnd,
+          slot_duration_minutes: duration,
+          price_per_slot: price,
+          advance_payment_percentage: advancePct,
+          cancellation_window_hours: cancelHours,
+          sport_types_offered: sports
+        })
+      });
+      if (res.ok) {
+        setSettingsSuccess('Settings updated successfully!');
+      } else {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to save settings');
+      }
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!adminToken) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center p-6">
+        <div className="w-full max-w-md border border-neutral-900 bg-neutral-950 p-8 shadow-xl">
+          <div className="text-center mb-8">
+            <div className="inline-flex w-12 h-12 rounded-full bg-[#22c55e]/10 border border-[#22c55e]/30 items-center justify-center text-xl font-black text-[#22c55e] mb-3">
+              <Lock className="w-5 h-5" />
+            </div>
+            <h2 className="text-lg font-black uppercase tracking-wider text-white">Admin Control Panel</h2>
+            <p className="text-[10px] text-neutral-500 uppercase tracking-widest font-semibold mt-1">Naduparabil Turf Manager</p>
+          </div>
+
+          {loginError && (
+            <div className="mb-6 p-4 border border-red-955 bg-red-955/20 text-xs text-red-500 font-bold uppercase tracking-wide">
+              {loginError}
+            </div>
+          )}
+
+          <form onSubmit={handleAdminLogin} className="space-y-5">
+            <div>
+              <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Admin Email</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="admin@naduparabil.com"
+                className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white placeholder-neutral-700 focus:outline-none focus:border-[#22c55e]"
+              />
+            </div>
+
+            <div>
+              <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Password</label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white placeholder-neutral-700 focus:outline-none focus:border-[#22c55e]"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="w-full py-4 bg-[#22c55e] text-black font-black uppercase text-xs tracking-wider rounded-none shadow-[2px_2px_0px_#000] hover:bg-[#1db252] transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              {loginLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Log In Dashboard'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-black text-white flex flex-col md:flex-row">
+      <aside className="w-full md:w-64 border-b md:border-b-0 md:border-r border-neutral-900 bg-neutral-950 flex flex-col justify-between p-6 shrink-0">
+        <div className="space-y-8">
+          <div className="border-b border-neutral-900 pb-5">
+            <span className="text-[9px] font-bold text-[#22c55e] uppercase tracking-widest block mb-1">Live Control</span>
+            <h2 className="text-sm font-black text-white uppercase tracking-tight">Turf Admin Board</h2>
+          </div>
+
+          <nav className="flex flex-row md:flex-col overflow-x-auto md:overflow-x-visible no-scrollbar gap-1">
+            {[
+              { id: 'today', label: 'Today\'s Bookings' },
+              { id: 'calendar', label: 'Calendar Grid' },
+              { id: 'block', label: 'Block Slots' },
+              { id: 'pending', label: 'Pending Balances' },
+              { id: 'cancellations', label: 'Cancellations Log' },
+              { id: 'settings', label: 'Turf Settings' },
+              { id: 'stats', label: 'Stats Analytics' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => { setActiveTab(tab.id); setSelectedSlotDetails(null); }}
+                className={`py-3 px-4 text-[10px] font-bold uppercase tracking-wider rounded-none text-left whitespace-nowrap transition cursor-pointer ${
+                  activeTab === tab.id
+                    ? 'bg-[#22c55e]/10 border-l-2 border-[#22c55e] text-[#22c55e]'
+                    : 'text-neutral-500 hover:text-white hover:bg-neutral-900/30'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        <div className="pt-6 border-t border-neutral-900 mt-6 md:mt-0">
+          <button
+            onClick={handleAdminSignOut}
+            className="w-full py-3 border border-red-955 bg-red-955/5 hover:bg-red-955/15 text-red-500 font-extrabold text-[10px] uppercase tracking-wider rounded-none transition flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <XCircle className="w-4 h-4" /> Sign Out
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 p-6 md:p-8 overflow-y-auto">
+        {loading && !actionLoadingId ? (
+          <div className="min-h-[50vh] flex items-center justify-center">
+            <Loader2 className="w-8 h-8 animate-spin text-[#22c55e]" />
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {activeTab === 'today' && (
+              <div className="space-y-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-neutral-900 pb-5">
+                  <div>
+                    <h2 className="text-xl font-black uppercase text-white tracking-tight">Today's Bookings</h2>
+                    <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-1 font-bold">List and verify all game check-ins</p>
+                  </div>
+                  <input
+                    type="date"
+                    value={todayDate}
+                    onChange={(e) => setTodayDate(e.target.value)}
+                    className="bg-neutral-950 border border-neutral-900 p-2 text-xs font-bold text-white focus:outline-none focus:border-[#22c55e]"
+                  />
+                </div>
+
+                {bookings.length === 0 ? (
+                  <div className="border border-neutral-900 p-10 bg-neutral-950/20 text-center uppercase tracking-wide">
+                    <p className="text-xs font-bold text-neutral-400">No Bookings Found</p>
+                    <p className="text-[9px] text-neutral-600 mt-1">There are no records for {todayDate}</p>
+                  </div>
+                ) : (
+                  <div className="border border-neutral-900 bg-neutral-950/20 overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-neutral-900 text-[9px] text-neutral-500 uppercase font-black tracking-widest bg-neutral-950/60">
+                          <th className="p-4">Time Block</th>
+                          <th className="p-4">Customer Details</th>
+                          <th className="p-4">Finance Details</th>
+                          <th className="p-4 text-center">Payment Status</th>
+                          <th className="p-4 text-center">Booking Status</th>
+                          <th className="p-4 text-right">Quick Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-900/60 font-medium">
+                        {bookings.map(b => (
+                          <tr key={b.id} className="hover:bg-neutral-950/40 transition">
+                            <td className="p-4 font-black text-white">
+                              {formatTime12h(b.start_time)} - {formatTime12h(b.end_time)}
+                            </td>
+                            <td className="p-4">
+                              <span className="text-white font-extrabold uppercase block">{b.customer_name}</span>
+                              <span className="text-neutral-500 text-[10px] mt-0.5 block">{b.customer_phone}</span>
+                            </td>
+                            <td className="p-4">
+                              <span className="text-white block font-bold">Total: ₹{b.total_amount}</span>
+                              <span className="text-[#22c55e] text-[10px] block">Paid Adv: ₹{b.advance_paid_amount}</span>
+                            </td>
+                            <td className="p-4 text-center">
+                              {b.balance_payment_status === 'paid_at_venue' ? (
+                                <span className="inline-block px-2 py-0.5 bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/30 text-[9px] font-black uppercase">Paid at Venue</span>
+                              ) : (
+                                <span className="inline-block px-2 py-0.5 bg-amber-500/10 text-amber-500 border border-amber-500/30 text-[9px] font-black uppercase">Pending Bal (₹{b.balance_amount})</span>
+                              )}
+                            </td>
+                            <td className="p-4 text-center">
+                              <span className={`inline-block px-2.5 py-0.5 text-[9px] font-black uppercase border ${
+                                b.booking_status === 'confirmed' ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30' :
+                                b.booking_status === 'completed' ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' :
+                                b.booking_status === 'no_show' ? 'bg-red-500/10 text-red-400 border-red-500/30' :
+                                'bg-neutral-800 text-neutral-400 border-neutral-700/50'
+                              }`}>
+                                {b.booking_status}
+                              </span>
+                            </td>
+                            <td className="p-4 text-right space-x-2">
+                              {b.balance_payment_status === 'pending' && b.booking_status === 'confirmed' && (
+                                <button
+                                  disabled={actionLoadingId === b.id}
+                                  onClick={() => markBalancePaid(b.id)}
+                                  className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-black font-extrabold text-[9px] uppercase tracking-wider rounded-none cursor-pointer"
+                                >
+                                  {actionLoadingId === b.id ? 'Saving...' : 'Collect Bal'}
+                                </button>
+                              )}
+                              {b.booking_status === 'confirmed' && (
+                                <>
+                                  <button
+                                    disabled={actionLoadingId === b.id}
+                                    onClick={() => markCompleted(b.id)}
+                                    className="px-2 py-1 bg-[#22c55e] hover:bg-[#1db252] text-black font-extrabold text-[9px] uppercase tracking-wider rounded-none cursor-pointer"
+                                  >
+                                    Complete
+                                  </button>
+                                  <button
+                                    disabled={actionLoadingId === b.id}
+                                    onClick={() => markNoShow(b.id)}
+                                    className="px-2 py-1 bg-red-650 hover:bg-red-800 text-white font-extrabold text-[9px] uppercase tracking-wider rounded-none cursor-pointer"
+                                  >
+                                    No-Show
+                                  </button>
+                                </>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'calendar' && (
+              <div className="space-y-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-neutral-900 pb-5">
+                  <div>
+                    <h2 className="text-xl font-black uppercase text-white tracking-tight">Calendar Grid</h2>
+                    <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-1 font-bold">View slot statuses and details</p>
+                  </div>
+                  <input
+                    type="date"
+                    value={calendarDate}
+                    onChange={(e) => { setCalendarDate(e.target.value); setSelectedSlotDetails(null); }}
+                    className="bg-neutral-950 border border-neutral-900 p-2 text-xs font-bold text-white focus:outline-none focus:border-[#22c55e]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="lg:col-span-2 space-y-4">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-neutral-500">Slots Board ({calendarDate})</h3>
+                    {calendarSlots.length === 0 ? (
+                      <div className="border border-neutral-900 p-10 bg-neutral-950/20 text-center">
+                        <p className="text-xs font-bold text-neutral-500 uppercase tracking-wider">No Slots Seeded</p>
+                        <p className="text-[9px] text-neutral-600 mt-1 uppercase">Click Settings to verify operating hours and price.</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {calendarSlots.map(slot => {
+                          const hasB = bookings.find(b => b.slot_id === slot.id);
+                          let borderClass = 'border-neutral-900 text-neutral-500';
+                          let bgClass = 'bg-neutral-950/30';
+                          if (slot.status === 'available') {
+                            borderClass = 'border-[#22c55e]/30 text-[#22c55e] hover:bg-[#22c55e]/5';
+                          } else if (slot.status === 'booked') {
+                            borderClass = 'border-red-500/30 text-red-500 hover:bg-red-500/5';
+                          } else if (slot.status === 'blocked') {
+                            borderClass = 'border-neutral-800 text-neutral-700 hover:bg-neutral-900/10';
+                            bgClass = 'bg-neutral-900/20';
+                          } else if (slot.status === 'held') {
+                            borderClass = 'border-amber-500/30 text-amber-500 hover:bg-amber-500/5';
+                          }
+
+                          const isActive = selectedSlotDetails && selectedSlotDetails.id === slot.id;
+
+                          return (
+                            <button
+                              key={slot.id}
+                              onClick={() => setSelectedSlotDetails({ ...slot, booking: hasB })}
+                              className={`p-3 border text-left rounded-none transition flex flex-col justify-between cursor-pointer ${borderClass} ${bgClass} ${
+                                isActive ? 'ring-1 ring-white' : ''
+                              }`}
+                            >
+                              <span className="text-[10px] font-black uppercase tracking-tight block">
+                                {formatTime12h(slot.start_time)}
+                              </span>
+                              <span className="text-[8px] uppercase tracking-widest font-extrabold mt-2 block">
+                                {slot.status}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-neutral-500">Slot Details</h3>
+                    {selectedSlotDetails ? (
+                      <div className="border border-neutral-900 bg-neutral-950 p-5 space-y-5 animate-in fade-in duration-200">
+                        <div>
+                          <span className={`text-[8px] border px-2 py-0.5 font-black uppercase tracking-widest ${
+                            selectedSlotDetails.status === 'available' ? 'border-[#22c55e] text-[#22c55e]' :
+                            selectedSlotDetails.status === 'booked' ? 'border-red-500 text-red-500' :
+                            selectedSlotDetails.status === 'blocked' ? 'border-neutral-700 text-neutral-500' :
+                            'border-amber-500 text-amber-500'
+                          }`}>
+                            {selectedSlotDetails.status}
+                          </span>
+                          <h3 className="text-base font-black text-white mt-3 uppercase">
+                            {formatTime12h(selectedSlotDetails.start_time)} - {formatTime12h(selectedSlotDetails.end_time)}
+                          </h3>
+                          <p className="text-[10px] text-neutral-500 font-bold uppercase mt-1">Date: {formatDateDisplayShort(selectedSlotDetails.date)}</p>
+                        </div>
+
+                        {selectedSlotDetails.status === 'booked' && selectedSlotDetails.booking && (
+                          <div className="space-y-3 pt-3 border-t border-neutral-900 text-xs">
+                            <div>
+                              <span className="text-[9px] text-neutral-500 uppercase font-black block">Customer Name</span>
+                              <span className="text-white font-extrabold uppercase block">{selectedSlotDetails.booking.customer_name}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-neutral-500 uppercase font-black block">Phone Number</span>
+                              <span className="text-white font-bold block">{selectedSlotDetails.booking.customer_phone}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-neutral-500 uppercase font-black block">Advance Payment Status</span>
+                              <span className="text-[#22c55e] font-bold block">Paid: ₹{selectedSlotDetails.booking.advance_paid_amount}</span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-neutral-500 uppercase font-black block">Venue Balance Status</span>
+                              {selectedSlotDetails.booking.balance_payment_status === 'paid_at_venue' ? (
+                                <span className="text-[#22c55e] font-bold block">Paid: ₹{selectedSlotDetails.booking.balance_amount}</span>
+                              ) : (
+                                <span className="text-amber-500 font-bold block">Pending: ₹{selectedSlotDetails.booking.balance_amount}</span>
+                              )}
+                            </div>
+
+                            <div className="pt-4 border-t border-neutral-900/60 flex flex-wrap gap-2">
+                              {selectedSlotDetails.booking.balance_payment_status === 'pending' && (
+                                <button
+                                  disabled={actionLoadingId === selectedSlotDetails.id}
+                                  onClick={() => markBalancePaid(selectedSlotDetails.booking.id)}
+                                  className="py-2 px-3 bg-amber-500 hover:bg-amber-600 text-black font-bold text-[9px] uppercase tracking-wider cursor-pointer"
+                                >
+                                  Collect Balance
+                                </button>
+                              )}
+                              {selectedSlotDetails.booking.booking_status === 'confirmed' && (
+                                <>
+                                  <button
+                                    disabled={actionLoadingId === selectedSlotDetails.id}
+                                    onClick={() => markCompleted(selectedSlotDetails.booking.id)}
+                                    className="py-2 px-3 bg-[#22c55e] hover:bg-[#1db252] text-black font-bold text-[9px] uppercase tracking-wider cursor-pointer"
+                                  >
+                                    Complete
+                                  </button>
+                                  <button
+                                    disabled={actionLoadingId === selectedSlotDetails.id}
+                                    onClick={() => markNoShow(selectedSlotDetails.booking.id)}
+                                    className="py-2 px-3 bg-red-650 hover:bg-red-800 text-white font-bold text-[9px] uppercase tracking-wider cursor-pointer"
+                                  >
+                                    No-Show
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {selectedSlotDetails.status === 'available' && (
+                          <div className="pt-3 border-t border-neutral-900">
+                            <button
+                              disabled={actionLoadingId === selectedSlotDetails.id}
+                              onClick={() => toggleBlockSlot(selectedSlotDetails, true)}
+                              className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 text-white font-bold text-xs uppercase tracking-wider rounded-none cursor-pointer"
+                            >
+                              {actionLoadingId === selectedSlotDetails.id ? 'Processing...' : 'Block Slot'}
+                            </button>
+                          </div>
+                        )}
+
+                        {selectedSlotDetails.status === 'blocked' && (
+                          <div className="pt-3 border-t border-neutral-900">
+                            <button
+                              disabled={actionLoadingId === selectedSlotDetails.id}
+                              onClick={() => toggleBlockSlot(selectedSlotDetails, false)}
+                              className="w-full py-3 bg-[#22c55e] hover:bg-[#1db252] text-black font-extrabold text-xs uppercase tracking-wider rounded-none shadow-[2px_2px_0px_#000] cursor-pointer"
+                            >
+                              {actionLoadingId === selectedSlotDetails.id ? 'Processing...' : 'Unblock Slot'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="border border-neutral-900 border-dashed p-6 text-center text-xs text-neutral-500 uppercase tracking-wider">
+                        Select a slot on the grid to inspect details
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'block' && (
+              <div className="space-y-6">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-neutral-900 pb-5">
+                  <div>
+                    <h2 className="text-xl font-black uppercase text-white tracking-tight">Block Slots</h2>
+                    <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-1 font-bold">Bulk-manage slot maintenance blocks</p>
+                  </div>
+                  <input
+                    type="date"
+                    value={blockDate}
+                    onChange={(e) => setBlockDate(e.target.value)}
+                    className="bg-neutral-950 border border-neutral-900 p-2 text-xs font-bold text-white focus:outline-none focus:border-[#22c55e]"
+                  />
+                </div>
+
+                <div className="border border-neutral-900 bg-neutral-950 p-5 space-y-4">
+                  <div className="flex justify-between items-center pb-3 border-b border-neutral-900">
+                    <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">
+                      {selectedBlockSlotIds.length} Slots Selected
+                    </span>
+                    <div className="space-x-3">
+                      <button
+                        onClick={() => setSelectedBlockSlotIds([])}
+                        className="text-xs text-neutral-500 hover:text-white cursor-pointer"
+                      >
+                        Clear Selection
+                      </button>
+                      <button
+                        disabled={selectedBlockSlotIds.length === 0}
+                        onClick={() => handleBulkBlockAction(true)}
+                        className="px-4 py-2 border border-red-500 text-red-500 hover:bg-red-500/10 text-[9px] font-bold uppercase tracking-wider disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer"
+                      >
+                        Block Selected
+                      </button>
+                      <button
+                        disabled={selectedBlockSlotIds.length === 0}
+                        onClick={() => handleBulkBlockAction(false)}
+                        className="px-4 py-2 bg-[#22c55e] text-black hover:bg-[#1db252] text-[9px] font-extrabold uppercase tracking-wider disabled:opacity-30 disabled:hover:bg-[#22c55e] cursor-pointer"
+                      >
+                        Unblock Selected
+                      </button>
+                    </div>
+                  </div>
+
+                  {blockSlotsList.length === 0 ? (
+                    <div className="p-8 text-center text-neutral-500 text-xs uppercase font-bold">
+                      No slots generated for this date.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                      {blockSlotsList.map(slot => {
+                        const isBooked = slot.status === 'booked';
+                        const isHeld = slot.status === 'held';
+                        const isChecked = selectedBlockSlotIds.includes(slot.id);
+                        
+                        return (
+                          <label
+                            key={slot.id}
+                            className={`p-4 border text-xs font-bold uppercase cursor-pointer flex items-center gap-3 transition select-none ${
+                              isBooked || isHeld ? 'border-neutral-900 bg-neutral-950/20 text-neutral-700 cursor-not-allowed' :
+                              isChecked ? 'border-white bg-neutral-900 text-white' :
+                              slot.status === 'blocked' ? 'border-neutral-800 text-neutral-500 bg-neutral-950/20' :
+                              'border-neutral-900 text-neutral-400 hover:border-neutral-750'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              disabled={isBooked || isHeld}
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedBlockSlotIds([...selectedBlockSlotIds, slot.id]);
+                                } else {
+                                  setSelectedBlockSlotIds(selectedBlockSlotIds.filter(id => id !== slot.id));
+                                }
+                              }}
+                              className="w-4 h-4 accent-[#22c55e]"
+                            />
+                            <div className="flex-1">
+                              <span className="block font-black">{formatTime12h(slot.start_time)}</span>
+                              <span className="text-[8px] text-neutral-500 uppercase tracking-widest mt-1 block">
+                                Status: {slot.status} {isBooked ? '(Cannot edit)' : ''}
+                              </span>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'pending' && (
+              <div className="space-y-6">
+                <div className="border-b border-neutral-900 pb-5">
+                  <h2 className="text-xl font-black uppercase text-white tracking-tight">Pending Balances</h2>
+                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-1 font-bold">Collect balances on game dates</p>
+                </div>
+
+                {bookings.length === 0 ? (
+                  <div className="border border-neutral-900 p-10 bg-neutral-950/20 text-center uppercase tracking-wide">
+                    <p className="text-xs font-bold text-neutral-400">All Balances Paid</p>
+                    <p className="text-[9px] text-neutral-600 mt-1">There are no pending balances recorded</p>
+                  </div>
+                ) : (
+                  <div className="border border-neutral-900 bg-neutral-950/20 overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-neutral-900 text-[9px] text-neutral-500 uppercase font-black tracking-widest bg-neutral-950/60">
+                          <th className="p-4">Play Date</th>
+                          <th className="p-4">Time Block</th>
+                          <th className="p-4">Customer Details</th>
+                          <th className="p-4 text-center">Remaining Balance</th>
+                          <th className="p-4 text-right">Quick Collection</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-900/60 font-medium text-neutral-300">
+                        {bookings.map(b => (
+                          <tr key={b.id} className="hover:bg-neutral-950/40 transition">
+                            <td className="p-4 text-white font-extrabold">
+                              {formatDateDisplayShort(b.date)}
+                            </td>
+                            <td className="p-4 font-black">
+                              {formatTime12h(b.start_time)} - {formatTime12h(b.end_time)}
+                            </td>
+                            <td className="p-4">
+                              <span className="text-white font-bold uppercase block">{b.customer_name}</span>
+                              <span className="text-neutral-500 text-[10px] mt-0.5 block">{b.customer_phone}</span>
+                            </td>
+                            <td className="p-4 text-center font-extrabold text-amber-500 text-sm">
+                              ₹{b.balance_amount}
+                            </td>
+                            <td className="p-4 text-right">
+                              <button
+                                disabled={actionLoadingId === b.id}
+                                onClick={() => markBalancePaid(b.id)}
+                                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-black font-extrabold text-[9px] uppercase tracking-wider rounded-none cursor-pointer"
+                              >
+                                {actionLoadingId === b.id ? 'Updating...' : 'Collect Cash'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'cancellations' && (
+              <div className="space-y-6">
+                <div className="border-b border-neutral-900 pb-5">
+                  <h2 className="text-xl font-black uppercase text-white tracking-tight">Cancellations & Refunds</h2>
+                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-1 font-bold">Past cancellations audit trail</p>
+                </div>
+
+                {bookings.length === 0 ? (
+                  <div className="border border-neutral-900 p-10 bg-neutral-950/20 text-center uppercase tracking-wide">
+                    <p className="text-xs font-bold text-neutral-500">Log Empty</p>
+                    <p className="text-[9px] text-neutral-600 mt-1">No cancellations have been recorded</p>
+                  </div>
+                ) : (
+                  <div className="border border-neutral-900 bg-neutral-950/20 overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-neutral-900 text-[9px] text-neutral-500 uppercase font-black tracking-widest bg-neutral-950/60">
+                          <th className="p-4">Customer</th>
+                          <th className="p-4">Play Slot</th>
+                          <th className="p-4">Cancelled At</th>
+                          <th className="p-4 text-center">Window Eligibility</th>
+                          <th className="p-4 text-center">Refund Value</th>
+                          <th className="p-4 text-right">Refund Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-900/60 font-medium text-neutral-400">
+                        {bookings.map(b => {
+                          const isInWindow = b.cancelled_at && b.cancellation_deadline ? new Date(b.cancelled_at) <= new Date(b.cancellation_deadline) : false;
+                          
+                          return (
+                            <tr key={b.id} className="hover:bg-neutral-950/40 transition">
+                              <td className="p-4 font-bold text-white uppercase">
+                                {b.customer_name}
+                              </td>
+                              <td className="p-4">
+                                <span className="text-white block font-extrabold uppercase">{formatDateDisplayShort(b.date)}</span>
+                                <span className="text-[10px] text-neutral-500 mt-0.5 block">{formatTime12h(b.start_time)} - {formatTime12h(b.end_time)}</span>
+                              </td>
+                              <td className="p-4 text-neutral-300">
+                                {b.cancelled_at ? new Date(b.cancelled_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : 'N/A'}
+                              </td>
+                              <td className="p-4 text-center">
+                                {isInWindow ? (
+                                  <span className="text-[#22c55e] text-[10px] font-bold">Refundable</span>
+                                ) : (
+                                  <span className="text-red-400 text-[10px] font-bold">Non-Refundable</span>
+                                )}
+                              </td>
+                              <td className="p-4 text-center text-white font-bold">
+                                ₹{b.refund_amount || 0}
+                              </td>
+                              <td className="p-4 text-right">
+                                <span className={`inline-block px-2 py-0.5 text-[9px] font-black uppercase border ${
+                                  b.refund_status === 'processed' ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30' :
+                                  b.refund_status === 'pending' ? 'bg-amber-500/10 text-amber-500 border-amber-500/30' :
+                                  'bg-neutral-800 text-neutral-500 border-neutral-700/50'
+                                }`}>
+                                  {b.refund_status || 'not_applicable'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'settings' && (
+              <div className="space-y-6">
+                <div className="border-b border-neutral-900 pb-5">
+                  <h2 className="text-xl font-black uppercase text-white tracking-tight">Turf Settings</h2>
+                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-1 font-bold">Configure operating limits and rates</p>
+                </div>
+
+                {settingsSuccess && (
+                  <div className="p-4 border border-[#22c55e]/30 bg-[#22c55e]/5 text-[#22c55e] text-xs font-bold uppercase tracking-wider animate-fade-in">
+                    {settingsSuccess}
+                  </div>
+                )}
+
+                <form onSubmit={handleSettingsSave} className="border border-neutral-900 bg-neutral-950 p-6 space-y-6 max-w-2xl">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Turf Name</label>
+                      <input
+                        type="text"
+                        required
+                        value={turfName}
+                        onChange={(e) => setTurfName(e.target.value)}
+                        className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Sports Offered <span className="text-[8px] text-neutral-600 font-normal">(Comma Separated)</span></label>
+                      <input
+                        type="text"
+                        required
+                        value={sports}
+                        onChange={(e) => setSports(e.target.value)}
+                        className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Operating Hours Start</label>
+                      <input
+                        type="time"
+                        required
+                        value={hoursStart}
+                        onChange={(e) => setHoursStart(e.target.value)}
+                        className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Operating Hours End</label>
+                      <input
+                        type="time"
+                        required
+                        value={hoursEnd}
+                        onChange={(e) => setHoursEnd(e.target.value)}
+                        className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Slot Duration (Minutes)</label>
+                      <select
+                        value={duration}
+                        onChange={(e) => setDuration(parseInt(e.target.value, 10))}
+                        className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
+                      >
+                        <option value={30}>30 Minutes</option>
+                        <option value={60}>60 Minutes (1 Hour)</option>
+                        <option value={90}>90 Minutes</option>
+                        <option value={120}>120 Minutes (2 Hours)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Price Per Slot (₹)</label>
+                      <input
+                        type="number"
+                        required
+                        min={0}
+                        value={price}
+                        onChange={(e) => setPrice(parseFloat(e.target.value))}
+                        className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Online Advance Percentage (%)</label>
+                      <input
+                        type="number"
+                        required
+                        min={0}
+                        max={100}
+                        value={advancePct}
+                        onChange={(e) => setAdvancePct(parseInt(e.target.value, 10))}
+                        className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Cancellation Cutoff (Hours)</label>
+                      <input
+                        type="number"
+                        required
+                        min={0}
+                        value={cancelHours}
+                        onChange={(e) => setCancelHours(parseInt(e.target.value, 10))}
+                        className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-neutral-900 text-right">
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="px-6 py-3.5 bg-[#22c55e] text-black font-black uppercase text-xs tracking-wider rounded-none shadow-[2px_2px_0px_#000] hover:bg-[#1db252] transition cursor-pointer"
+                    >
+                      {loading ? 'Saving...' : 'Save Settings Override'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {activeTab === 'stats' && (
+              <div className="space-y-6">
+                <div className="border-b border-neutral-900 pb-5">
+                  <h2 className="text-xl font-black uppercase text-white tracking-tight">Stats & Analytics</h2>
+                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-1 font-bold">Key performance indicators</p>
+                </div>
+
+                {stats ? (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="border border-neutral-900 bg-neutral-950 p-6">
+                      <span className="text-[9px] uppercase font-bold text-neutral-500 tracking-wider">Bookings This Week</span>
+                      <span className="block text-4xl font-black text-white mt-2">{stats.bookingsThisWeek}</span>
+                    </div>
+
+                    <div className="border border-neutral-900 bg-neutral-950 p-6">
+                      <span className="text-[9px] uppercase font-bold text-neutral-500 tracking-wider">Revenue Collected This Week</span>
+                      <span className="block text-4xl font-black text-[#22c55e] mt-2">₹{stats.revenueThisWeek}</span>
+                      <span className="text-[8px] text-neutral-600 block mt-1 uppercase font-bold">(Advance paid + Venue balance collected)</span>
+                    </div>
+
+                    <div className="border border-neutral-900 bg-neutral-950 p-6">
+                      <span className="text-[9px] uppercase font-bold text-neutral-500 tracking-wider">Bookings This Month</span>
+                      <span className="block text-4xl font-black text-white mt-2">{stats.bookingsThisMonth}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center p-8 text-neutral-500 text-xs">No stats data found.</div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </main>
     </div>
   );
 }
