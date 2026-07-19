@@ -331,7 +331,7 @@ export const query = async (text, params = []) => {
             await batch.commit();
           }
           return { rows: [] };
-        } else if (trimmedText.includes('held_until = NULL') && trimmedText.includes('WHERE id =')) {
+        } else if (trimmedText.includes("status = 'available'") && trimmedText.includes('held_until = NULL') && trimmedText.includes('WHERE id =')) {
           // Revert hold query: UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1
           const slotId = params[0];
           await firestoreDb.collection('slots').doc(slotId).update({
