@@ -51,7 +51,7 @@ if (databaseUrl) {
     });
     isPostgres = true;
     console.log('Database client: Configured for PostgreSQL.');
-    await initializePostgresTables();
+    await checkAndMigratePostgres();
   } catch (err) {
     console.error('Failed to initialize PostgreSQL pool, falling back to SQLite:', err.message);
   }
@@ -78,14 +78,17 @@ if (!isPostgres && !isFirestore) {
         // Perform database migration check first
         sqliteDb.all("PRAGMA table_info(bookings)", [], (err, columns) => {
           if (!err && columns && columns.length > 0) {
-            const hasCustomerName = columns.some(col => col.name === 'customer_name');
-            if (hasCustomerName) {
-              console.log("Old bookings table schema detected. Dropping bookings table for schema migration...");
-              sqliteDb.run("DROP TABLE bookings", (dropErr) => {
-                if (dropErr) {
-                  console.error("Failed to drop bookings table:", dropErr.message);
-                }
-                initializeSqliteTables();
+            const hasTotalAmount = columns.some(col => col.name === 'total_amount');
+            if (!hasTotalAmount) {
+              console.log("Old bookings table schema detected (missing total_amount). Dropping tables for schema migration...");
+              sqliteDb.serialize(() => {
+                sqliteDb.run("DROP TABLE IF EXISTS bookings", (dropErr) => {
+                  if (dropErr) console.error("Failed to drop bookings table:", dropErr.message);
+                  sqliteDb.run("DROP TABLE IF EXISTS slots", (dropErr2) => {
+                    if (dropErr2) console.error("Failed to drop slots table:", dropErr2.message);
+                    initializeSqliteTables();
+                  });
+                });
               });
               return;
             }
@@ -100,6 +103,25 @@ if (!isPostgres && !isFirestore) {
   }
 }
 
+// Check and migrate Postgres tables if columns are missing
+async function checkAndMigratePostgres() {
+  try {
+    const tableCheck = await pgPool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'bookings' AND column_name = 'total_amount'
+    `);
+    if (tableCheck.rows.length === 0) {
+      console.log("Migration: Dropping old tables to recreate with new payment integration schema in Postgres...");
+      await pgPool.query("DROP TABLE IF EXISTS bookings CASCADE");
+      await pgPool.query("DROP TABLE IF EXISTS slots CASCADE");
+    }
+  } catch (err) {
+    console.warn("Postgres migration check failed, skipping drops:", err.message);
+  }
+  await initializePostgresTables();
+}
+
 // Initialize SQLite tables if they do not exist
 function initializeSqliteTables() {
   const ddl = `
@@ -108,8 +130,11 @@ function initializeSqliteTables() {
       date TEXT NOT NULL,
       start_time TEXT NOT NULL,
       end_time TEXT NOT NULL,
-      status TEXT CHECK(status IN ('available', 'booked')) NOT NULL DEFAULT 'available',
-      price REAL NOT NULL
+      status TEXT CHECK(status IN ('available', 'held', 'booked', 'blocked')) NOT NULL DEFAULT 'available',
+      price REAL NOT NULL,
+      held_until TEXT,
+      held_by_user_id TEXT,
+      FOREIGN KEY (held_by_user_id) REFERENCES users(id)
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -124,6 +149,14 @@ function initializeSqliteTables() {
       slot_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       created_at TEXT NOT NULL,
+      total_amount REAL,
+      advance_amount REAL,
+      advance_paid_amount REAL DEFAULT 0,
+      balance_amount REAL,
+      razorpay_order_id TEXT,
+      razorpay_payment_id TEXT,
+      payment_verified BOOLEAN DEFAULT FALSE,
+      booking_status TEXT DEFAULT 'pending',
       FOREIGN KEY (slot_id) REFERENCES slots(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
@@ -146,8 +179,11 @@ async function initializePostgresTables() {
       date TEXT NOT NULL,
       start_time TEXT NOT NULL,
       end_time TEXT NOT NULL,
-      status TEXT CHECK(status IN ('available', 'booked')) NOT NULL DEFAULT 'available',
-      price REAL NOT NULL
+      status TEXT CHECK(status IN ('available', 'held', 'booked', 'blocked')) NOT NULL DEFAULT 'available',
+      price REAL NOT NULL,
+      held_until TEXT,
+      held_by_user_id TEXT,
+      FOREIGN KEY (held_by_user_id) REFERENCES users(id)
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -162,6 +198,14 @@ async function initializePostgresTables() {
       slot_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       created_at TEXT NOT NULL,
+      total_amount REAL,
+      advance_amount REAL,
+      advance_paid_amount REAL DEFAULT 0,
+      balance_amount REAL,
+      razorpay_order_id TEXT,
+      razorpay_payment_id TEXT,
+      payment_verified BOOLEAN DEFAULT FALSE,
+      booking_status TEXT DEFAULT 'pending',
       FOREIGN KEY (slot_id) REFERENCES slots(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
@@ -232,9 +276,8 @@ export const query = async (text, params = []) => {
         return { rows: doc.exists ? [{ id: doc.id, ...doc.data() }] : [] };
       }
       
-      // 7. INSERT INTO bookings (id, slot_id, user_id, created_at)
+      // 7. INSERT INTO bookings (id, slot_id, user_id, created_at, ...)
       if (trimmedText.startsWith('INSERT INTO bookings')) {
-        // Fetch denormalized info
         const slotDoc = await firestoreDb.collection('slots').doc(params[1]).get();
         const userDoc = await firestoreDb.collection('users').doc(params[2]).get();
         
@@ -242,6 +285,13 @@ export const query = async (text, params = []) => {
           slot_id: params[1],
           user_id: params[2],
           created_at: params[3],
+          total_amount: params[4],
+          advance_amount: params[5],
+          advance_paid_amount: params[6] || 0,
+          balance_amount: params[7],
+          razorpay_order_id: params[8],
+          payment_verified: params[9] === true || params[9] === 1,
+          booking_status: params[10] || 'pending',
           customer_name: userDoc.exists ? userDoc.data().name : '',
           customer_phone: userDoc.exists ? userDoc.data().phone : '',
           slot: slotDoc.exists ? slotDoc.data() : null
@@ -249,10 +299,50 @@ export const query = async (text, params = []) => {
         return { rows: [] };
       }
       
-      // 8. UPDATE slots SET status = $1 WHERE id = $2
+      // 8. UPDATE slots SET status = $1 WHERE id = $2 (and variations for holds)
       if (trimmedText.startsWith('UPDATE slots SET status =')) {
-        await firestoreDb.collection('slots').doc(params[1]).update({ status: params[0] });
-        return { rows: [] };
+        if (trimmedText.includes('held_until = NULL') && trimmedText.includes('held_until <')) {
+          // Revert expired holds query
+          const snap = await firestoreDb.collection('slots')
+            .where('status', '==', 'held')
+            .where('held_until', '<', params[0])
+            .get();
+          const batch = firestoreDb.batch();
+          snap.docs.forEach(doc => {
+            batch.update(doc.ref, {
+              status: 'available',
+              held_until: null,
+              held_by_user_id: null
+            });
+          });
+          await batch.commit();
+          return { rows: [] };
+        } else if (trimmedText.includes('held_until = $2')) {
+          // Place hold query: UPDATE slots SET status = $1, held_until = $2, held_by_user_id = $3 WHERE id = $4
+          let rowCount = 0;
+          await firestoreDb.runTransaction(async (transaction) => {
+            const docRef = firestoreDb.collection('slots').doc(params[3]);
+            const doc = await transaction.get(docRef);
+            if (doc.exists) {
+              const data = doc.data();
+              const isAvailable = data.status === 'available';
+              const isHoldExpired = data.status === 'held' && data.held_until && data.held_until < params[4];
+              if (isAvailable || isHoldExpired) {
+                transaction.update(docRef, {
+                  status: params[0],
+                  held_until: params[1],
+                  held_by_user_id: params[2]
+                });
+                rowCount = 1;
+              }
+            }
+          });
+          return { rows: [], rowCount };
+        } else {
+          // Normal status update
+          await firestoreDb.collection('slots').doc(params[1]).update({ status: params[0] });
+          return { rows: [] };
+        }
       }
       
       // 9. SELECT slot_id, user_id FROM bookings WHERE id = $1
@@ -279,6 +369,11 @@ export const query = async (text, params = []) => {
             created_at: data.created_at,
             customer_name: data.customer_name,
             customer_phone: data.customer_phone,
+            total_amount: data.total_amount,
+            advance_amount: data.advance_amount,
+            advance_paid_amount: data.advance_paid_amount,
+            balance_amount: data.balance_amount,
+            booking_status: data.booking_status,
             date: data.slot?.date,
             start_time: data.slot?.start_time,
             end_time: data.slot?.end_time,
@@ -292,6 +387,44 @@ export const query = async (text, params = []) => {
           return (b.start_time || '').localeCompare(a.start_time || '');
         });
         return { rows };
+      }
+      
+      // 11b. UPDATE bookings SET payment_verified = ... WHERE razorpay_order_id = ...
+      if (trimmedText.startsWith('UPDATE bookings SET payment_verified =')) {
+        const snap = await firestoreDb.collection('bookings').where('razorpay_order_id', '==', params[5]).get();
+        const batch = firestoreDb.batch();
+        snap.docs.forEach(doc => {
+          batch.update(doc.ref, {
+            payment_verified: params[0] === true || params[0] === 1,
+            advance_paid_amount: params[1],
+            balance_amount: params[2],
+            booking_status: params[3],
+            razorpay_payment_id: params[4]
+          });
+        });
+        await batch.commit();
+        return { rows: [] };
+      }
+
+      // 11c. SELECT b.id, b.slot_id, b.user_id, b.total_amount, b.advance_amount ... WHERE b.razorpay_order_id = $1
+      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('b.razorpay_order_id = $1')) {
+        const snap = await firestoreDb.collection('bookings').where('razorpay_order_id', '==', params[0]).get();
+        if (snap.size > 0) {
+          const data = snap.docs[0].data();
+          return {
+            rows: [{
+              id: snap.docs[0].id,
+              slot_id: data.slot_id,
+              user_id: data.user_id,
+              total_amount: data.total_amount,
+              advance_amount: data.advance_amount,
+              date: data.slot?.date,
+              start_time: data.slot?.start_time,
+              end_time: data.slot?.end_time
+            }]
+          };
+        }
+        return { rows: [] };
       }
       
       // 12. Transaction markers

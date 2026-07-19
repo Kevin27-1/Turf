@@ -109,6 +109,8 @@ export default function App() {
   
   // Confirmed details
   const [confirmedBooking, setConfirmedBooking] = useState(null);
+  const [holdData, setHoldData] = useState(null); // { orderId, bookingId, totalAmount, advanceAmount, balanceAmount, heldUntil }
+  const [holdTimeLeft, setHoldTimeLeft] = useState(0);
 
   // Local Storage Bookings & Profile list
   const [myBookings, setMyBookings] = useState([]);
@@ -226,6 +228,27 @@ export default function App() {
     }
   }, [currentTab]);
 
+  // Reservation Hold Timer countdown
+  useEffect(() => {
+    if (!holdData || !holdData.heldUntil) return;
+    
+    const updateTimer = () => {
+      const diff = Math.max(0, Math.floor((new Date(holdData.heldUntil).getTime() - Date.now()) / 1000));
+      setHoldTimeLeft(diff);
+      if (diff === 0) {
+        setBookingError('Reservation hold expired! The slot has been released.');
+        // Refresh slots automatically
+        if (selectedDate && currentTab === 'book') {
+          fetchSlots(selectedDate);
+        }
+      }
+    };
+    
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [holdData, selectedDate, currentTab]);
+
   // Scroll Listener for Sticky Bottom CTA
   useEffect(() => {
     const handleScroll = () => {
@@ -323,63 +346,173 @@ export default function App() {
     }
   };
 
-  const handleOpenBooking = (slot) => {
-    if (slot.status === 'booked') return;
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handleOpenBooking = async (slot) => {
+    if (slot.status === 'booked' || slot.status === 'blocked') return;
     if (!user) {
       setError('Please log in from the Profile tab to book a slot.');
       setCurrentTab('profile');
       return;
     }
     setSelectedSlot(slot);
+    setBookingLoading(true);
     setBookingError('');
+    setHoldData(null);
+
+    try {
+      const token = localStorage.getItem('jwt_token');
+      if (!token) throw new Error('Please log in to book a slot.');
+
+      const res = await fetch('/api/bookings/hold', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ slot_id: slot.id })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to reserve the slot.');
+      }
+
+      setHoldData({
+        orderId: data.order_id,
+        bookingId: data.booking_id,
+        totalAmount: data.total_amount,
+        advanceAmount: data.advance_amount,
+        balanceAmount: data.balance_amount,
+        heldUntil: new Date(data.held_until)
+      });
+    } catch (err) {
+      console.error(err);
+      setBookingError(err.message || 'Could not place reservation hold on slot.');
+    } finally {
+      setBookingLoading(false);
+    }
   };
 
   const handleCloseBooking = () => {
     setSelectedSlot(null);
-    setCustomerName('');
-    setCustomerPhone('');
+    setHoldData(null);
+    setBookingError('');
+    setBookingLoading(false);
+    // Refresh slots board when closing modal so the user gets up to date status
+    if (selectedDate) {
+      fetchSlots(selectedDate);
+    }
   };
 
   const handleBookingSubmit = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
+    if (!holdData) return;
+
+    if (holdTimeLeft <= 0) {
+      setBookingError('Your reservation hold has expired. Please close this modal and try again.');
+      return;
+    }
+
     setBookingLoading(true);
     setBookingError('');
 
     try {
       const token = localStorage.getItem('jwt_token');
-      if (!token) {
-        throw new Error('You must be logged in to book a slot');
+      if (!token) throw new Error('Authentication required.');
+
+      // 1. Fetch Razorpay config
+      const configRes = await fetch('/api/config/razorpay-key');
+      const configData = await configRes.json();
+      if (!configRes.ok) throw new Error('Failed to retrieve payment gateway configuration.');
+
+      // 2. Load Razorpay script
+      const isScriptLoaded = await loadRazorpayScript();
+      if (!isScriptLoaded) {
+        throw new Error('Razorpay SDK failed to load. Please check your internet connection.');
       }
 
-      const res = await fetch('/api/bookings', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+      // 3. Open Razorpay checkout modal
+      const options = {
+        key: configData.keyId,
+        amount: holdData.advanceAmount * 100, // in paise
+        currency: 'INR',
+        name: 'Naduparabil Turf',
+        description: `Advance Payment (40%) for Turf Reservation`,
+        order_id: holdData.orderId,
+        handler: async function (response) {
+          setBookingLoading(true);
+          setBookingError('');
+          try {
+            // 4. Verify payment with backend
+            const verifyRes = await fetch('/api/bookings/verify', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+              })
+            });
+
+            const verifyData = await verifyRes.json();
+            if (!verifyRes.ok) {
+              throw new Error(verifyData.error || 'Payment verification failed.');
+            }
+
+            // 5. Update state
+            const updatedBookings = [verifyData.booking, ...myBookings];
+            setMyBookings(updatedBookings);
+            setConfirmedBooking(verifyData.booking);
+            setCurrentTab('passes');
+            setProfileSub(null);
+            
+            // Clean up modal states but keep confirmedBooking
+            setSelectedSlot(null);
+            setHoldData(null);
+          } catch (err) {
+            console.error(err);
+            setBookingError(err.message || 'Signature verification failed.');
+          } finally {
+            setBookingLoading(false);
+          }
         },
-        body: JSON.stringify({
-          slot_id: selectedSlot.id
-        })
-      });
+        prefill: {
+          name: user?.name || '',
+          contact: user?.phone || ''
+        },
+        theme: {
+          color: '#22c55e'
+        },
+        modal: {
+          ondismiss: function () {
+            setBookingLoading(false);
+          }
+        }
+      };
 
-      const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to complete booking');
-      }
+      const paymentObject = new window.Razorpay(options);
+      paymentObject.open();
 
-      // Update state
-      const updatedBookings = [data.booking, ...myBookings];
-      setMyBookings(updatedBookings);
-
-      setConfirmedBooking(data.booking);
-      setCurrentTab('passes');
-      setProfileSub(null);
-      handleCloseBooking();
     } catch (err) {
       console.error(err);
-      setBookingError(err.message || 'An error occurred during booking.');
-    } finally {
+      setBookingError(err.message || 'An error occurred during booking process.');
       setBookingLoading(false);
     }
   };
@@ -1129,11 +1262,30 @@ export default function App() {
                         </span>
                       </div>
                       <div>
-                        <span className="text-[9px] uppercase font-bold tracking-wider text-neutral-500 block">Amount</span>
+                        <span className="text-[9px] uppercase font-bold tracking-wider text-neutral-500 block">Total Court Price</span>
                         <span className="font-bold text-white mt-0.5 block">
-                          ₹{confirmedBooking.slot.price}
+                          ₹{confirmedBooking.total_amount || confirmedBooking.slot.price}
                         </span>
                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 pt-1.5">
+                      <div>
+                        <span className="text-[9px] uppercase font-bold tracking-wider text-neutral-500 block">Paid (Online Advance)</span>
+                        <span className="font-bold text-[#22c55e] mt-0.5 block">
+                          ₹{confirmedBooking.advance_paid_amount}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] uppercase font-bold tracking-wider text-neutral-500 block">Due at Venue</span>
+                        <span className="font-bold text-amber-500 mt-0.5 block">
+                          ₹{confirmedBooking.balance_amount}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-[#22c55e]/5 border border-[#22c55e]/15 text-[10px] text-neutral-400 font-bold uppercase tracking-wide">
+                      Please pay the remaining ₹{confirmedBooking.balance_amount} at the venue
                     </div>
 
                     <div className="pt-2.5 border-t border-neutral-900">
@@ -1197,14 +1349,18 @@ export default function App() {
                         {formatDateDisplayShort(b.slot.date)}
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-neutral-900/60 text-[10px] text-neutral-400">
+                      <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-neutral-900/60 text-[10px] text-neutral-400">
                         <div>
                           <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">Player</span>
                           <span className="font-bold text-neutral-300 truncate block">{b.customer_name}</span>
                         </div>
                         <div>
-                          <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">Amount</span>
-                          <span className="font-bold text-neutral-300 block">₹{b.slot.price}</span>
+                          <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">Paid</span>
+                          <span className="text-[#22c55e] font-bold block">₹{b.advance_paid_amount}</span>
+                        </div>
+                        <div>
+                          <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">At Venue</span>
+                          <span className="font-bold text-amber-500 block">₹{b.balance_amount}</span>
                         </div>
                       </div>
                     </div>
@@ -2070,15 +2226,15 @@ export default function App() {
 
           <div className="w-full max-w-sm bg-neutral-950 border border-neutral-800 rounded-none relative z-10 p-5 transform translate-y-0 transition duration-300 animate-in slide-in-from-bottom duration-300">
             
-            <div className="mb-5 pb-3 border-b border-neutral-900">
+            <div className="mb-4 pb-3 border-b border-neutral-900">
               <span className="text-[9px] font-bold text-[#22c55e] uppercase tracking-widest">
-                Reservation Details
+                Slot Reservation
               </span>
               <h3 className="text-lg font-black text-white mt-1 uppercase">
                 {formatTime12h(selectedSlot.start_time)} to {formatTime12h(selectedSlot.end_time)}
               </h3>
               <p className="text-[10px] text-neutral-400 mt-1 uppercase font-semibold">
-                Date: {formatDateDisplayShort(selectedSlot.date)} | Rate: <span className="text-[#22c55e]">₹{selectedSlot.price}</span>
+                Date: {formatDateDisplayShort(selectedSlot.date)}
               </p>
             </div>
 
@@ -2088,47 +2244,87 @@ export default function App() {
               </div>
             )}
 
-            <form onSubmit={handleBookingSubmit} className="space-y-4">
-              <div className="space-y-3.5 bg-neutral-950 border border-neutral-900 p-4">
-                <div>
-                  <span className="text-[8px] font-bold text-neutral-600 uppercase tracking-widest block">Account Name</span>
-                  <span className="text-xs font-black text-white mt-1 block flex items-center gap-1.5 uppercase">
-                    <User className="w-3.5 h-3.5 text-[#22c55e]" />
-                    {user?.name}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[8px] font-bold text-neutral-600 uppercase tracking-widest block">Contact Phone</span>
-                  <span className="text-xs font-bold text-neutral-400 mt-1 block flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5 text-[#22c55e]" />
-                    +91 {user?.phone}
-                  </span>
-                </div>
+            {bookingLoading && !holdData ? (
+              <div className="flex flex-col items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 text-[#22c55e] animate-spin mb-2" />
+                <p className="text-[10px] text-neutral-500 uppercase tracking-widest font-bold">Reserving your slot...</p>
               </div>
+            ) : holdData ? (
+              <form onSubmit={handleBookingSubmit} className="space-y-4">
+                {/* Hold Timer Alert Banner */}
+                <div className="p-2.5 border border-amber-950/60 bg-amber-950/10 text-amber-500 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider">
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Slot held for payment
+                  </span>
+                  <span className="font-mono text-xs">
+                    {Math.floor(holdTimeLeft / 60)}:{(holdTimeLeft % 60).toString().padStart(2, '0')}
+                  </span>
+                </div>
 
-              <div className="flex gap-3 pt-3">
+                {/* Player details */}
+                <div className="space-y-2 bg-neutral-900/20 border border-neutral-900 p-3">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-[8px] font-bold text-neutral-600 uppercase tracking-widest">Player</span>
+                    <span className="font-black text-white uppercase">{user?.name}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-[8px] font-bold text-neutral-600 uppercase tracking-widest">Phone</span>
+                    <span className="font-bold text-neutral-400">+91 {user?.phone}</span>
+                  </div>
+                </div>
+
+                {/* Payment Breakdown Box */}
+                <div className="bg-neutral-950 border border-[#22c55e]/20 p-3.5 space-y-2.5">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider">Total Slot Price</span>
+                    <span className="font-bold text-white">₹{holdData.totalAmount}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs border-b border-neutral-900 pb-2">
+                    <span className="text-[9px] font-bold text-[#22c55e] uppercase tracking-wider flex items-center gap-1">
+                      Advance Due Now (40%)
+                    </span>
+                    <span className="font-black text-[#22c55e] text-sm">₹{holdData.advanceAmount}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs pt-1">
+                    <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider">Balance at Venue</span>
+                    <span className="font-bold text-neutral-300">₹{holdData.balanceAmount}</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleCloseBooking}
+                    className="flex-1 py-3 border border-neutral-900 text-neutral-500 hover:text-white font-bold text-xs uppercase tracking-wider rounded-none transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={bookingLoading || holdTimeLeft <= 0}
+                    className="flex-2 py-3 bg-[#22c55e] hover:bg-[#1db252] disabled:opacity-50 text-black font-extrabold text-xs uppercase tracking-wider rounded-none shadow-[2px_2px_0px_#000] transition flex items-center justify-center gap-1.5"
+                  >
+                    {bookingLoading ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> PAYING...
+                      </>
+                    ) : (
+                      `PAY ADVANCE ₹${holdData.advanceAmount}`
+                    )}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="pt-2 text-center">
                 <button
                   type="button"
                   onClick={handleCloseBooking}
-                  className="flex-1 py-3 border border-neutral-900 text-neutral-500 hover:text-white font-bold text-xs uppercase tracking-wider rounded-none transition"
+                  className="w-full py-3 bg-neutral-900 hover:bg-neutral-850 text-white font-bold text-xs uppercase tracking-wider rounded-none transition"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={bookingLoading}
-                  className="flex-1 py-3 bg-[#22c55e] hover:bg-[#1db252] disabled:opacity-50 text-black font-extrabold text-xs uppercase tracking-wider rounded-none shadow-[2px_2px_0px_#000] transition flex items-center justify-center gap-1.5"
-                >
-                  {bookingLoading ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> CONFIRMING...
-                    </>
-                  ) : (
-                    'CONFIRM SLOT'
-                  )}
+                  Close
                 </button>
               </div>
-            </form>
+            )}
           </div>
         </div>
       )}
