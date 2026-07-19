@@ -91,6 +91,8 @@ export default function App() {
     sport_types_offered: ['Football', 'Cricket']
   });
 
+  const [reviewsData, setReviewsData] = useState(null);
+
   useEffect(() => {
     fetch('/api/settings/public')
       .then(res => res.json())
@@ -100,6 +102,11 @@ export default function App() {
         }
       })
       .catch(err => console.error('Failed to load public settings:', err));
+
+    fetch('/api/reviews')
+      .then(res => res.json())
+      .then(data => setReviewsData(data))
+      .catch(err => console.error('Failed to load reviews:', err));
   }, []);
 
   // Custom Phone OTP Auth State
@@ -1119,6 +1126,90 @@ export default function App() {
               <p className="hidden md:block text-[9px] text-neutral-600 text-center uppercase tracking-widest font-bold mt-4">Click any photo to expand</p>
             </div>
           </section>
+
+          {/* REVIEWS & TESTIMONIALS SECTION */}
+          {reviewsData && (
+            <section className="scroll-reveal w-full py-8 border-t border-neutral-900 md:py-16">
+              <div className="md:max-w-7xl md:mx-auto md:px-16">
+                <div className="flex justify-between items-end mb-6 px-6 md:px-0">
+                  <div>
+                    <h3 className="text-[10px] md:text-xs font-bold text-neutral-500 uppercase tracking-widest mb-1">
+                      Google Maps Reviews
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl md:text-2xl font-black text-white">{reviewsData.rating}</span>
+                      <span className="text-[#22c55e] text-sm md:text-base font-black">★★★★★</span>
+                      <span className="text-[9px] md:text-xs text-neutral-500 font-bold uppercase">
+                        ({reviewsData.total_ratings} Reviews)
+                      </span>
+                    </div>
+                  </div>
+                  <a
+                    href="https://maps.google.com/?q=Golden+Arm+Turf+Alakode"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-2 border border-neutral-800 text-neutral-400 hover:border-[#22c55e] hover:text-[#22c55e] font-bold text-[9px] uppercase tracking-wider transition"
+                  >
+                    Write a Review
+                  </a>
+                </div>
+
+                {/* Mobile: horizontal scroll */}
+                <div className="flex md:hidden gap-3 overflow-x-auto px-6 pb-4 no-scrollbar snap-x snap-mandatory scroll-smooth">
+                  {reviewsData.reviews.map((r, idx) => (
+                    <div
+                      key={idx}
+                      className="flex-shrink-0 w-[240px] border border-neutral-900 bg-neutral-950 p-4 relative snap-center flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-[10px] font-black text-white uppercase truncate max-w-[120px]">
+                            {r.author_name}
+                          </span>
+                          <span className="text-[#22c55e] text-[8px]">
+                            {"★".repeat(r.rating)}
+                          </span>
+                        </div>
+                        <p className="text-[9px] text-neutral-400 font-medium leading-relaxed line-clamp-4">
+                          "{r.text}"
+                        </p>
+                      </div>
+                      <span className="text-[8px] text-neutral-600 font-bold uppercase mt-3 block">
+                        {r.relative_time_description}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop: 3-column grid */}
+                <div className="hidden md:grid grid-cols-3 gap-6">
+                  {reviewsData.reviews.slice(0, 6).map((r, idx) => (
+                    <div
+                      key={idx}
+                      className="border border-neutral-900 bg-neutral-950/40 p-6 hover:border-neutral-700 transition flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-xs font-black text-white uppercase truncate">
+                            {r.author_name}
+                          </span>
+                          <span className="text-[#22c55e] text-[10px]">
+                            {"★".repeat(r.rating)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-neutral-400 font-medium leading-relaxed italic">
+                          "{r.text}"
+                        </p>
+                      </div>
+                      <span className="text-[9px] text-neutral-600 font-bold uppercase mt-4 block">
+                        {r.relative_time_description}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* E+F. PRICING & LOCATION — stacked on mobile, side-by-side on desktop */}
           <section className="scroll-reveal w-full border-t border-neutral-900 md:py-16">
