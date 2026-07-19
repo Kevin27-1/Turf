@@ -300,9 +300,9 @@ export const query = async (text, params = []) => {
       }
       
       // 8. UPDATE slots SET status = $1 WHERE id = $2 (and variations for holds)
-      if (trimmedText.startsWith('UPDATE slots SET status =')) {
+      if (trimmedText.startsWith('UPDATE slots SET status =') || trimmedText.startsWith('UPDATE slots SET status=')) {
         if (trimmedText.includes('held_until = NULL') && trimmedText.includes('held_until <')) {
-          // Revert expired holds query
+          // Revert expired holds query: UPDATE slots SET status = 'available', ... WHERE held_until < $1
           const snap = await firestoreDb.collection('slots')
             .where('status', '==', 'held')
             .where('held_until', '<', params[0])
@@ -317,21 +317,39 @@ export const query = async (text, params = []) => {
           });
           await batch.commit();
           return { rows: [] };
-        } else if (trimmedText.includes('held_until = $2')) {
-          // Place hold query: UPDATE slots SET status = $1, held_until = $2, held_by_user_id = $3 WHERE id = $4
+        } else if (trimmedText.includes('held_until = NULL') && trimmedText.includes('WHERE id =')) {
+          // Revert hold query: UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1
+          const slotId = params[0];
+          await firestoreDb.collection('slots').doc(slotId).update({
+            status: 'available',
+            held_until: null,
+            held_by_user_id: null
+          });
+          return { rows: [] };
+        } else if (trimmedText.includes("status = 'booked'") || (trimmedText.includes('held_until = NULL') && trimmedText.includes('held_by_user_id = NULL'))) {
+          // Confirm booking query: UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1
+          const slotId = params[0];
+          await firestoreDb.collection('slots').doc(slotId).update({
+            status: 'booked',
+            held_until: null,
+            held_by_user_id: null
+          });
+          return { rows: [] };
+        } else if (trimmedText.includes("status = 'held'") || trimmedText.includes("status='held'")) {
+          // Place hold query: UPDATE slots SET status = 'held', held_until = $1, held_by_user_id = $2 WHERE id = $3 ...
           let rowCount = 0;
           await firestoreDb.runTransaction(async (transaction) => {
-            const docRef = firestoreDb.collection('slots').doc(params[3]);
+            const docRef = firestoreDb.collection('slots').doc(params[2]);
             const doc = await transaction.get(docRef);
             if (doc.exists) {
               const data = doc.data();
               const isAvailable = data.status === 'available';
-              const isHoldExpired = data.status === 'held' && data.held_until && data.held_until < params[4];
+              const isHoldExpired = data.status === 'held' && data.held_until && data.held_until < params[3];
               if (isAvailable || isHoldExpired) {
                 transaction.update(docRef, {
-                  status: params[0],
-                  held_until: params[1],
-                  held_by_user_id: params[2]
+                  status: 'held',
+                  held_until: params[0],
+                  held_by_user_id: params[1]
                 });
                 rowCount = 1;
               }
@@ -339,7 +357,7 @@ export const query = async (text, params = []) => {
           });
           return { rows: [], rowCount };
         } else {
-          // Normal status update
+          // Normal status update: UPDATE slots SET status = $1 WHERE id = $2
           await firestoreDb.collection('slots').doc(params[1]).update({ status: params[0] });
           return { rows: [] };
         }
