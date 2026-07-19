@@ -388,10 +388,12 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden: You cannot confirm a booking for another user.' });
     }
 
-    // Calculate cancellation_deadline = slot.start_time - 4 hours
+    // Calculate cancellation_deadline = slot.start_time - 4 hours (in IST timezone +05:30)
     const [year, month, day] = booking.date.split('-').map(Number);
     const [hour, minute] = booking.start_time.split(':').map(Number);
-    const slotStart = new Date(year, month - 1, day, hour, minute, 0, 0);
+    const dateStr = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+    const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
+    const slotStart = new Date(`${dateStr}T${timeStr}+05:30`);
     const deadline = new Date(slotStart.getTime() - CANCELLATION_WINDOW_HOURS * 60 * 60 * 1000);
     const cancellationDeadline = deadline.toISOString();
 
