@@ -917,18 +917,8 @@ export default function App() {
   const stats = getStats();
 
   return (
-    <div className="min-h-screen w-full bg-[#030303] md:flex md:items-start md:justify-center md:pt-8 md:pb-8">
-      {/* Desktop background decoration */}
-      <div className="hidden md:block fixed inset-0 pointer-events-none" style={{
-        backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(34,197,94,0.03) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(34,197,94,0.02) 0%, transparent 40%)',
-        backgroundSize: '100% 100%'
-      }} />
-      <div className="hidden md:block fixed inset-0 pointer-events-none opacity-20" style={{
-        backgroundImage: 'linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)',
-        backgroundSize: '40px 40px'
-      }} />
-
-    <div className="relative min-h-screen md:min-h-0 md:h-[calc(100vh-64px)] flex flex-col items-center bg-[#070707] text-white p-0 pb-24 w-full max-w-md mx-auto border-x border-neutral-900 shadow-[0_0_80px_rgba(0,0,0,0.8)] md:overflow-y-auto md:rounded-none">
+    <div className="min-h-screen w-full bg-[#070707] text-white">
+    <div className="relative flex flex-col items-center pb-24 w-full max-w-md mx-auto md:max-w-none md:mx-0 md:pb-0">
       
       {/* HEADER SECTION (EXCEPT ON HOME SCREEN) */}
       {currentTab !== 'home' && !profileSub && (
@@ -952,28 +942,28 @@ export default function App() {
         <main className="flex-1 w-full flex flex-col">
           
           {/* A. HERO SECTION */}
-          <section className="relative w-full h-[320px] overflow-hidden flex items-center justify-center">
+          {/* Mobile: 320px tall centered card | Desktop: full-bleed tall split */}
+          <section className="relative w-full h-[320px] md:h-[520px] overflow-hidden flex items-center justify-center md:justify-start">
             <div className="absolute inset-0 z-0">
               <img 
                 src="/turf_hero.jpg" 
                 alt="Naduparabil Turf" 
                 className="w-full h-full object-cover animate-fade-scale"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-black/50 to-transparent"></div>
+              <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-black/50 to-transparent md:bg-gradient-to-r md:from-black/90 md:via-black/60 md:to-transparent"></div>
             </div>
 
-            <div className="relative z-10 text-center px-6 flex flex-col items-center">
+            {/* Mobile hero content — centered */}
+            <div className="relative z-10 text-center px-6 flex flex-col items-center md:hidden">
               <div style={{transitionDelay:'0ms'}} className="scroll-reveal border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-3 py-0.5 text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 mb-3">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse"></span>
                 Open 24 Hours
               </div>
-
               {user && (
                 <div style={{transitionDelay:'80ms'}} className="scroll-reveal text-[10px] font-bold text-[#22c55e] uppercase tracking-widest mb-2">
                   Hi, {user.name}
                 </div>
               )}
-
               {(() => {
                 const nameParts = publicSettings.turf_name.split(' ');
                 const firstName = nameParts[0] || 'Naduparabil';
@@ -992,7 +982,6 @@ export default function App() {
               <p style={{transitionDelay:'260ms'}} className="scroll-reveal text-neutral-300 text-[9px] font-bold uppercase tracking-widest mt-2 max-w-[280px]">
                 {publicSettings.turf_name}'s Premier Turf Arena
               </p>
-
               <button
                 onClick={() => setCurrentTab('book')}
                 style={{transitionDelay:'380ms'}}
@@ -1001,10 +990,58 @@ export default function App() {
                 Book Court Now &rarr;
               </button>
             </div>
+
+            {/* Desktop hero content — left-aligned, large */}
+            <div className="relative z-10 hidden md:flex flex-col items-start px-16 max-w-3xl">
+              <div className="scroll-reveal border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-4 py-1 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 mb-5">
+                <span className="w-2 h-2 rounded-full bg-[#22c55e] animate-pulse"></span>
+                Open 24 Hours • Alakode, Kerala
+              </div>
+              {user && (
+                <div className="scroll-reveal text-xs font-bold text-[#22c55e] uppercase tracking-widest mb-3">
+                  Welcome back, {user.name}
+                </div>
+              )}
+              {(() => {
+                const nameParts = publicSettings.turf_name.split(' ');
+                const firstName = nameParts[0] || 'Naduparabil';
+                const lastName = nameParts.slice(1).join(' ') || 'Turf';
+                return (
+                  <>
+                    <h1 className="scroll-reveal text-[5rem] font-black tracking-tighter uppercase text-white leading-none">
+                      {firstName}
+                    </h1>
+                    <h1 style={{transitionDelay:'120ms'}} className="scroll-reveal text-[6.5rem] font-black tracking-tighter uppercase text-[#22c55e] leading-none">
+                      {lastName}
+                    </h1>
+                  </>
+                );
+              })()}
+              <p style={{transitionDelay:'240ms'}} className="scroll-reveal text-neutral-400 text-sm font-bold uppercase tracking-widest mt-4 max-w-md">
+                Alakode's Premier 5-a-side Turf — Football & Cricket
+              </p>
+              <div style={{transitionDelay:'360ms'}} className="scroll-reveal flex items-center gap-4 mt-8">
+                <button
+                  onClick={() => setCurrentTab('book')}
+                  className="px-10 py-4 bg-[#22c55e] text-black font-extrabold text-sm uppercase tracking-widest rounded-none border border-black hover:bg-[#1db252] transition shadow-[4px_4px_0px_#000000] hover:shadow-[2px_2px_0px_#000] active:translate-x-1 active:translate-y-1"
+                >
+                  Book a Slot &rarr;
+                </button>
+                <button
+                  onClick={() => {
+                    document.querySelector('.gallery-anchor')?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="px-10 py-4 border border-neutral-700 text-neutral-300 font-bold text-sm uppercase tracking-widest rounded-none hover:border-white hover:text-white transition"
+                >
+                  See Gallery
+                </button>
+              </div>
+            </div>
           </section>
 
           {/* B. LIVE AVAILABILITY TEASER */}
-          <section className="scroll-reveal w-full px-6 py-2 bg-neutral-950 border-y border-neutral-900">
+          <section className="scroll-reveal w-full px-6 py-2 bg-neutral-950 border-y border-neutral-900 md:px-16">
+            <div className="md:max-w-7xl md:mx-auto">
             <button
               onClick={handleLiveTeaserClick}
               className="w-full flex items-center justify-between py-2 text-left text-xs font-bold hover:opacity-80 transition group"
@@ -1017,132 +1054,132 @@ export default function App() {
                 Book <ChevronRight className="w-3.5 h-3.5" />
               </span>
             </button>
+            </div>
           </section>
 
           {/* C. WHY BOOK HERE */}
-          <section className="scroll-reveal w-full px-6 py-8">
-            <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-5">
-              WHY PLAY WITH US?
-            </h3>
-            
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                {
-                  icon: "💡",
-                  title: "Floodlit turf",
-                  desc: "Vibrant high-mast lights for night games"
-                },
-                {
-                  icon: "🌿",
-                  title: "FIFA quality grass",
-                  desc: "Resurfaced shock-absorbent synthetic surface"
-                },
-                {
-                  icon: "🚿",
-                  title: "Premium amenities",
-                  desc: "Changing rooms, showers, and on-site parking"
-                },
-                {
-                  icon: "⚡",
-                  title: "Instant booking",
-                  desc: "Book slots securely online in seconds"
-                }
-              ].map((card, i) => (
-                <div 
-                  key={i} 
-                  className="border border-neutral-900 bg-neutral-950/40 p-4 hover:border-neutral-800 transition active:scale-98"
-                >
-                  <span className="text-2xl block mb-2">{card.icon}</span>
-                  <h4 className="text-xs font-black text-white uppercase tracking-tight mb-1">{card.title}</h4>
-                  <p className="text-[9px] text-neutral-500 leading-normal font-medium">{card.desc}</p>
-                </div>
-              ))}
+          <section className="scroll-reveal w-full px-6 py-8 md:px-16 md:py-16 border-b border-neutral-900">
+            <div className="md:max-w-7xl md:mx-auto">
+              <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-5 md:text-xs md:mb-10">
+                WHY PLAY WITH US?
+              </h3>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-6">
+                {[
+                  { icon: '💡', title: 'Floodlit turf', desc: 'Vibrant high-mast lights for night games' },
+                  { icon: '🌿', title: 'FIFA quality grass', desc: 'Resurfaced shock-absorbent synthetic surface' },
+                  { icon: '🚿', title: 'Premium amenities', desc: 'Changing rooms, showers, and on-site parking' },
+                  { icon: '⚡', title: 'Instant booking', desc: 'Book slots securely online in seconds' }
+                ].map((card, i) => (
+                  <div
+                    key={i}
+                    className="border border-neutral-900 bg-neutral-950/40 p-4 md:p-6 hover:border-neutral-700 hover:bg-neutral-900/30 transition active:scale-98"
+                  >
+                    <span className="text-2xl md:text-4xl block mb-2 md:mb-4">{card.icon}</span>
+                    <h4 className="text-xs md:text-sm font-black text-white uppercase tracking-tight mb-1 md:mb-2">{card.title}</h4>
+                    <p className="text-[9px] md:text-xs text-neutral-500 leading-normal font-medium">{card.desc}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </section>
 
           {/* D. PHOTO GALLERY SECTION */}
-          <section className="scroll-reveal w-full py-8 border-t border-neutral-900">
-            <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4 px-6">
-              COURT GALLERY
-            </h3>
+          <section className="scroll-reveal gallery-anchor w-full py-8 border-t border-neutral-900 md:py-16 md:border-t-0">
+            <div className="md:max-w-7xl md:mx-auto md:px-16">
+              <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4 px-6 md:px-0 md:text-xs md:mb-8">
+                COURT GALLERY
+              </h3>
+              {/* Mobile: horizontal scroll */}
+              <div className="flex md:hidden gap-3 overflow-x-auto px-6 pb-4 no-scrollbar snap-x snap-mandatory scroll-smooth">
+                {galleryImages.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleLightboxOpen(idx)}
+                    className="flex-shrink-0 w-[180px] h-[120px] border border-neutral-900 bg-neutral-950 relative overflow-hidden snap-center hover:border-[#22c55e]/50 transition"
+                  >
+                    <img src={img.src} alt={img.caption} className="w-full h-full object-cover hover:scale-105 transition duration-300" />
+                    <div className="absolute bottom-0 inset-x-0 bg-black/80 px-2 py-1 text-[8px] font-bold uppercase tracking-wider text-neutral-400 text-left truncate">{img.caption}</div>
+                  </button>
+                ))}
+              </div>
+              {/* Desktop: grid */}
+              <div className="hidden md:grid grid-cols-3 gap-4">
+                {galleryImages.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleLightboxOpen(idx)}
+                    className="w-full h-[220px] border border-neutral-900 bg-neutral-950 relative overflow-hidden hover:border-[#22c55e]/50 transition group"
+                  >
+                    <img src={img.src} alt={img.caption} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                    <div className="absolute bottom-0 inset-x-0 bg-black/80 px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-neutral-400 text-left truncate">{img.caption}</div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[8px] text-neutral-600 text-center uppercase tracking-widest font-bold mt-4 md:hidden">Swipe to explore • Tap to expand</p>
+              <p className="hidden md:block text-[9px] text-neutral-600 text-center uppercase tracking-widest font-bold mt-4">Click any photo to expand</p>
+            </div>
+          </section>
 
-            <div className="flex gap-3 overflow-x-auto px-6 pb-4 no-scrollbar snap-x snap-mandatory scroll-smooth">
-              {galleryImages.map((img, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleLightboxOpen(idx)}
-                  className="flex-shrink-0 w-[180px] h-[120px] border border-neutral-900 bg-neutral-950 relative overflow-hidden snap-center hover:border-[#22c55e]/50 transition"
-                >
-                  <img 
-                    src={img.src} 
-                    alt={img.caption} 
-                    className="w-full h-full object-cover hover:scale-105 transition duration-300"
-                  />
-                  <div className="absolute bottom-0 inset-x-0 bg-black/80 px-2 py-1 text-[8px] font-bold uppercase tracking-wider text-neutral-400 text-left truncate">
-                    {img.caption}
+          {/* E+F. PRICING & LOCATION — stacked on mobile, side-by-side on desktop */}
+          <section className="scroll-reveal w-full border-t border-neutral-900 md:py-16">
+            <div className="md:max-w-7xl md:mx-auto md:px-16 md:grid md:grid-cols-2 md:gap-8">
+
+              {/* Pricing card */}
+              <div className="px-6 py-6 md:px-0 md:py-0 bg-neutral-950/30 md:bg-transparent border-b border-neutral-900 md:border-0">
+                <h4 className="text-[9px] md:text-xs font-bold text-neutral-500 uppercase tracking-widest mb-4">
+                  GLANCE RATE &amp; INFO
+                </h4>
+                <div className="border border-neutral-900 bg-neutral-950 p-4 md:p-8">
+                  <div className="grid grid-cols-3 gap-2 text-center divide-x divide-neutral-900">
+                    <div>
+                      <span className="text-[8px] md:text-[10px] text-neutral-500 block uppercase font-bold">Rates</span>
+                      <span className="text-xs md:text-xl font-black text-white mt-1 block">₹900 - 1200</span>
+                    </div>
+                    <div>
+                      <span className="text-[8px] md:text-[10px] text-neutral-500 block uppercase font-bold">Hours</span>
+                      <span className="text-xs md:text-xl font-black text-white mt-1 block">24 Hours</span>
+                    </div>
+                    <div>
+                      <span className="text-[8px] md:text-[10px] text-neutral-500 block uppercase font-bold">Sports</span>
+                      <span className="text-xs md:text-xl font-black text-white mt-1 block">Football / Cricket</span>
+                    </div>
                   </div>
-                </button>
-              ))}
-            </div>
-            <p className="text-[8px] text-neutral-600 text-center uppercase tracking-widest font-bold">Swipe to explore • Tap to expand</p>
-          </section>
-
-          {/* E. PRICING & TIMING CARD */}
-          <section className="scroll-reveal w-full px-6 py-6 border-t border-neutral-900 bg-neutral-950/30">
-            <div className="border border-neutral-900 bg-neutral-950 p-4">
-              <h4 className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-2.5">
-                GLANCE RATE & INFO
-              </h4>
-              <div className="grid grid-cols-3 gap-2 text-center divide-x divide-neutral-900">
-                <div>
-                  <span className="text-[8px] text-neutral-500 block uppercase font-bold">Rates</span>
-                  <span className="text-xs font-black text-white mt-1 block">₹900 - 1200</span>
-                </div>
-                <div>
-                  <span className="text-[8px] text-neutral-500 block uppercase font-bold">Hours</span>
-                  <span className="text-xs font-black text-white mt-1 block">24 Hours</span>
-                </div>
-                <div>
-                  <span className="text-[8px] text-neutral-500 block uppercase font-bold">Sports</span>
-                  <span className="text-xs font-black text-white mt-1 block">Football / Cricket</span>
                 </div>
               </div>
-            </div>
-          </section>
 
-          {/* F. LOCATION & MAP */}
-          <section className="scroll-reveal w-full px-6 py-8 border-t border-neutral-900">
-            <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4">
-              COURT LOCATION
-            </h3>
-
-            <div className="border border-neutral-900 bg-neutral-950 p-4">
-              <div className="w-full h-[150px] border border-neutral-900 mb-4 bg-[#070707] overflow-hidden">
-                <iframe
-                  title="Naduparabil Turf Location Map"
-                  width="100%"
-                  height="100%"
-                  style={{ border: 0 }}
-                  loading="lazy"
-                  allowFullScreen
-                  src="https://maps.google.com/maps?q=Naduparabil+Turf+Alakode&t=&z=15&ie=UTF8&iwloc=&output=embed"
-                ></iframe>
+              {/* Location card */}
+              <div className="px-6 py-8 md:px-0 md:py-0">
+                <h3 className="text-[10px] md:text-xs font-bold text-neutral-500 uppercase tracking-widest mb-4">
+                  COURT LOCATION
+                </h3>
+                <div className="border border-neutral-900 bg-neutral-950 p-4 md:p-6">
+                  <div className="w-full h-[150px] md:h-[200px] border border-neutral-900 mb-4 bg-[#070707] overflow-hidden">
+                    <iframe
+                      title="Naduparabil Turf Location Map"
+                      width="100%"
+                      height="100%"
+                      style={{ border: 0 }}
+                      loading="lazy"
+                      allowFullScreen
+                      src="https://maps.google.com/maps?q=Naduparabil+Turf+Alakode&t=&z=15&ie=UTF8&iwloc=&output=embed"
+                    ></iframe>
+                  </div>
+                  <span className="text-[8px] uppercase font-bold text-neutral-500 block">Address</span>
+                  <p className="text-[10px] md:text-xs font-bold text-white mt-0.5 leading-relaxed">
+                    Naduparabil Turf, Alakode, Kerala 670571
+                  </p>
+                  <a
+                    href="https://maps.google.com/?q=Naduparabil+Turf+Alakode"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-4 w-full py-3 border border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/5 font-extrabold text-[10px] uppercase tracking-wider rounded-none transition flex items-center justify-center gap-1.5"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    Get Directions on Map
+                  </a>
+                </div>
               </div>
 
-              <span className="text-[8px] uppercase font-bold text-neutral-500 block">Address</span>
-              <p className="text-[10px] font-bold text-white mt-0.5 leading-relaxed">
-                Naduparabil Turf, Alakode, Kerala 670571
-              </p>
-
-              <a
-                href="https://maps.google.com/?q=Naduparabil+Turf+Alakode"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-4 w-full py-3 border border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/5 font-extrabold text-[10px] uppercase tracking-wider rounded-none transition flex items-center justify-center gap-1.5"
-              >
-                <MapPin className="w-3.5 h-3.5" />
-                Get Directions on Map
-              </a>
             </div>
           </section>
 
