@@ -287,7 +287,7 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
     const options = {
       amount: advanceAmount * 100,
       currency: 'INR',
-      receipt: `receipt_${slot_id}_${Date.now()}`
+      receipt: `rcpt_${slot_id.substring(0, 8)}_${Date.now().toString().slice(-6)}`
     };
 
     let order;

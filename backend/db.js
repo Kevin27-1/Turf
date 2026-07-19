@@ -305,17 +305,23 @@ export const query = async (text, params = []) => {
           // Revert expired holds query: UPDATE slots SET status = 'available', ... WHERE held_until < $1
           const snap = await firestoreDb.collection('slots')
             .where('status', '==', 'held')
-            .where('held_until', '<', params[0])
             .get();
           const batch = firestoreDb.batch();
+          let count = 0;
           snap.docs.forEach(doc => {
-            batch.update(doc.ref, {
-              status: 'available',
-              held_until: null,
-              held_by_user_id: null
-            });
+            const data = doc.data();
+            if (data.held_until && data.held_until < params[0]) {
+              batch.update(doc.ref, {
+                status: 'available',
+                held_until: null,
+                held_by_user_id: null
+              });
+              count++;
+            }
           });
-          await batch.commit();
+          if (count > 0) {
+            await batch.commit();
+          }
           return { rows: [] };
         } else if (trimmedText.includes('held_until = NULL') && trimmedText.includes('WHERE id =')) {
           // Revert hold query: UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1
