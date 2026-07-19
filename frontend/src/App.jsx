@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { auth } from './firebase.js';
+import BounceCards from './BounceCards.jsx';
 import { RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { 
   Calendar, 
@@ -1130,9 +1131,9 @@ export default function App() {
           {/* REVIEWS & TESTIMONIALS SECTION */}
           {reviewsData && (
             <section className="scroll-reveal w-full py-8 border-t border-neutral-900 md:py-16">
-              <div className="md:max-w-7xl md:mx-auto md:px-16">
-                <div className="flex justify-between items-end mb-6 px-6 md:px-0">
-                  <div>
+              <div className="md:max-w-7xl md:mx-auto md:px-16 text-center">
+                <div className="flex justify-between items-end mb-8 px-6 md:px-0">
+                  <div className="text-left">
                     <h3 className="text-[10px] md:text-xs font-bold text-neutral-500 uppercase tracking-widest mb-1">
                       Google Maps Reviews
                     </h3>
@@ -1154,59 +1155,39 @@ export default function App() {
                   </a>
                 </div>
 
-                {/* Mobile: horizontal scroll */}
-                <div className="flex md:hidden gap-3 overflow-x-auto px-6 pb-4 no-scrollbar snap-x snap-mandatory scroll-smooth">
-                  {reviewsData.reviews.map((r, idx) => (
-                    <div
-                      key={idx}
-                      className="flex-shrink-0 w-[240px] border border-neutral-900 bg-neutral-950 p-4 relative snap-center flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-[10px] font-black text-white uppercase truncate max-w-[120px]">
-                            {r.author_name}
-                          </span>
-                          <span className="text-[#22c55e] text-[8px]">
-                            {"★".repeat(r.rating)}
-                          </span>
+                {/* Animated BounceCards stack */}
+                <div className="w-full flex justify-center py-6 overflow-hidden min-h-[260px]">
+                  <BounceCards
+                    cards={reviewsData.reviews.slice(0, 5).map((r, idx) => (
+                      <div key={idx} className="w-full h-full flex flex-col justify-between p-4 text-left select-none">
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-black text-white uppercase truncate max-w-[125px]">
+                              {r.author_name}
+                            </span>
+                            <span className="text-[#22c55e] text-[8px]">
+                              {"★".repeat(r.rating)}
+                            </span>
+                          </div>
+                          <p className="text-[9.5px] text-neutral-400 font-medium leading-relaxed line-clamp-4">
+                            "{r.text}"
+                          </p>
                         </div>
-                        <p className="text-[9px] text-neutral-400 font-medium leading-relaxed line-clamp-4">
-                          "{r.text}"
-                        </p>
+                        <span className="text-[8px] text-neutral-600 font-bold uppercase block mt-1">
+                          {r.relative_time_description}
+                        </span>
                       </div>
-                      <span className="text-[8px] text-neutral-600 font-bold uppercase mt-3 block">
-                        {r.relative_time_description}
-                      </span>
-                    </div>
-                  ))}
+                    ))}
+                    containerWidth={320}
+                    containerHeight={220}
+                    animationDelay={0.2}
+                    animationStagger={0.06}
+                    enableHover={true}
+                  />
                 </div>
-
-                {/* Desktop: 3-column grid */}
-                <div className="hidden md:grid grid-cols-3 gap-6">
-                  {reviewsData.reviews.slice(0, 6).map((r, idx) => (
-                    <div
-                      key={idx}
-                      className="border border-neutral-900 bg-neutral-950/40 p-6 hover:border-neutral-700 transition flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="text-xs font-black text-white uppercase truncate">
-                            {r.author_name}
-                          </span>
-                          <span className="text-[#22c55e] text-[10px]">
-                            {"★".repeat(r.rating)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-neutral-400 font-medium leading-relaxed italic">
-                          "{r.text}"
-                        </p>
-                      </div>
-                      <span className="text-[9px] text-neutral-600 font-bold uppercase mt-4 block">
-                        {r.relative_time_description}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                <p className="text-[8px] text-neutral-600 uppercase tracking-widest font-bold mt-2">
+                  Hover or tap reviews to inspect details
+                </p>
               </div>
             </section>
           )}
