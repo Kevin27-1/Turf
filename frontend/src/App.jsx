@@ -1640,7 +1640,7 @@ export default function App() {
                 </form>
               )}
             </div>
-          ) : (
+          ) : profileSub === null ? (
             <div className="space-y-6">
               
               {/* Profile Card Header */}
@@ -1791,7 +1791,7 @@ export default function App() {
               </div>
 
             </div>
-          )}
+          ) : null}
 
           {/* B. PROFILE EDIT PAGE */}
           {profileSub === 'edit' && (
