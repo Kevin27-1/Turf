@@ -1927,6 +1927,16 @@ export default function App() {
                     </span>
                     <ChevronRight className="w-4 h-4 text-neutral-600" />
                   </button>
+                  <button 
+                    onClick={() => window.open('/admin', '_blank')}
+                    className="w-full p-4 flex items-center justify-between text-left hover:bg-neutral-950/60 transition cursor-pointer"
+                  >
+                    <span className="text-xs font-bold text-neutral-300 flex items-center gap-2">
+                      <Lock className="w-4 h-4 text-neutral-500" />
+                      Admin Control Desk
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-neutral-600" />
+                  </button>
                 </div>
               </div>
 
