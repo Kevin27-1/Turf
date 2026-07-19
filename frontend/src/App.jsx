@@ -924,41 +924,39 @@ export default function App() {
             </div>
 
             <div className="relative z-10 text-center px-6 flex flex-col items-center">
-              <div className="border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-3 py-0.5 text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 mb-3 animate-fade-in">
+              <div className="animate-fade-in-up anim-delay-0 border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-3 py-0.5 text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 mb-3">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse"></span>
                 Open 24 Hours
               </div>
 
               {user && (
-                <div className="text-[10px] font-bold text-[#22c55e] uppercase tracking-widest mb-2 animate-fade-in">
+                <div className="animate-fade-in-up anim-delay-1 text-[10px] font-bold text-[#22c55e] uppercase tracking-widest mb-2">
                   Hi, {user.name}
                 </div>
               )}
 
-              <div className="animate-fade-in delay-100">
-                {(() => {
-                  const nameParts = publicSettings.turf_name.split(' ');
-                  const firstName = nameParts[0] || 'Naduparabil';
-                  const lastName = nameParts.slice(1).join(' ') || 'Turf';
-                  return (
-                    <>
-                      <h1 className="text-[2.25rem] font-black tracking-tighter uppercase text-white leading-none">
-                        {firstName}
-                      </h1>
-                      <h1 className="text-[3.5rem] font-black tracking-tighter uppercase text-[#22c55e] leading-none mt-0.5">
-                        {lastName}
-                      </h1>
-                    </>
-                  );
-                })()}
-              </div>
-              <p className="text-neutral-300 text-[9px] font-bold uppercase tracking-widest mt-2 max-w-[280px] animate-fade-in delay-150">
+              {(() => {
+                const nameParts = publicSettings.turf_name.split(' ');
+                const firstName = nameParts[0] || 'Naduparabil';
+                const lastName = nameParts.slice(1).join(' ') || 'Turf';
+                return (
+                  <>
+                    <h1 className="animate-fade-in-up anim-delay-1 text-[2.25rem] font-black tracking-tighter uppercase text-white leading-none">
+                      {firstName}
+                    </h1>
+                    <h1 className="animate-fade-in-up anim-delay-2 text-[3.5rem] font-black tracking-tighter uppercase text-[#22c55e] leading-none mt-0.5">
+                      {lastName}
+                    </h1>
+                  </>
+                );
+              })()}
+              <p className="animate-fade-in-up anim-delay-3 text-neutral-300 text-[9px] font-bold uppercase tracking-widest mt-2 max-w-[280px]">
                 {publicSettings.turf_name}'s Premier Turf Arena
               </p>
 
               <button
                 onClick={() => setCurrentTab('book')}
-                className="mt-6 px-8 py-3.5 bg-[#22c55e] text-black font-extrabold text-[11px] uppercase tracking-widest rounded-none border border-black hover:bg-[#1db252] transition shadow-[3px_3px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0px_#000] animate-fade-in delay-200"
+                className="animate-fade-in-up anim-delay-4 mt-6 px-8 py-3.5 bg-[#22c55e] text-black font-extrabold text-[11px] uppercase tracking-widest rounded-none border border-black hover:bg-[#1db252] transition shadow-[3px_3px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0px_#000]"
               >
                 Book Court Now &rarr;
               </button>
@@ -966,7 +964,7 @@ export default function App() {
           </section>
 
           {/* B. LIVE AVAILABILITY TEASER */}
-          <section className="w-full px-6 py-2 bg-neutral-950 border-y border-neutral-900 animate-fade-in delay-300">
+          <section className="animate-fade-in-up anim-delay-4 w-full px-6 py-2 bg-neutral-950 border-y border-neutral-900">
             <button
               onClick={handleLiveTeaserClick}
               className="w-full flex items-center justify-between py-2 text-left text-xs font-bold hover:opacity-80 transition group"
@@ -982,8 +980,8 @@ export default function App() {
           </section>
 
           {/* C. WHY BOOK HERE */}
-          <section className="w-full px-6 py-8">
-            <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-5 animate-fade-in delay-400">
+          <section className="animate-fade-in-up anim-delay-5 w-full px-6 py-8">
+            <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-5">
               WHY PLAY WITH US?
             </h3>
             
@@ -1012,7 +1010,7 @@ export default function App() {
               ].map((card, i) => (
                 <div 
                   key={i} 
-                  className={`border border-neutral-900 bg-neutral-950/40 p-4 hover:border-neutral-800 transition active:scale-98 animate-fade-in delay-${(i + 1) * 100}`}
+                  className="border border-neutral-900 bg-neutral-950/40 p-4 hover:border-neutral-800 transition active:scale-98"
                 >
                   <span className="text-2xl block mb-2">{card.icon}</span>
                   <h4 className="text-xs font-black text-white uppercase tracking-tight mb-1">{card.title}</h4>
@@ -1023,12 +1021,12 @@ export default function App() {
           </section>
 
           {/* D. PHOTO GALLERY SECTION */}
-          <section className="w-full py-8 border-t border-neutral-900">
-            <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4 px-6 animate-fade-in delay-500">
+          <section className="animate-fade-in-up anim-delay-6 w-full py-8 border-t border-neutral-900">
+            <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4 px-6">
               COURT GALLERY
             </h3>
 
-            <div className="flex gap-3 overflow-x-auto px-6 pb-4 no-scrollbar snap-x snap-mandatory scroll-smooth animate-fade-in delay-500">
+            <div className="flex gap-3 overflow-x-auto px-6 pb-4 no-scrollbar snap-x snap-mandatory scroll-smooth">
               {galleryImages.map((img, idx) => (
                 <button
                   key={idx}
@@ -1046,11 +1044,11 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <p className="text-[8px] text-neutral-600 text-center uppercase tracking-widest font-bold animate-fade-in delay-500">Swipe to explore • Tap to expand</p>
+            <p className="text-[8px] text-neutral-600 text-center uppercase tracking-widest font-bold">Swipe to explore • Tap to expand</p>
           </section>
 
           {/* E. PRICING & TIMING CARD */}
-          <section className="w-full px-6 py-6 border-t border-neutral-900 bg-neutral-950/30 animate-fade-in delay-500">
+          <section className="animate-fade-in-up anim-delay-6 w-full px-6 py-6 border-t border-neutral-900 bg-neutral-950/30">
             <div className="border border-neutral-900 bg-neutral-950 p-4">
               <h4 className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-2.5">
                 GLANCE RATE & INFO
@@ -1073,7 +1071,7 @@ export default function App() {
           </section>
 
           {/* F. LOCATION & MAP */}
-          <section className="w-full px-6 py-8 border-t border-neutral-900 animate-fade-in delay-500">
+          <section className="animate-fade-in-up anim-delay-7 w-full px-6 py-8 border-t border-neutral-900">
             <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4">
               COURT LOCATION
             </h3>

@@ -67,25 +67,28 @@
   animation: slideUpSticky 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-@keyframes fadeIn {
-  from {
+/* Home page staggered fade-in-up */
+@keyframes fadeInUp {
+  0% {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(22px);
   }
-  to {
+  100% {
     opacity: 1;
     transform: translateY(0);
   }
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+.animate-fade-in-up {
+  opacity: 0;
+  animation: fadeInUp 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.delay-100 { animation-delay: 100ms; }
-.delay-150 { animation-delay: 150ms; }
-.delay-200 { animation-delay: 200ms; }
-.delay-300 { animation-delay: 300ms; }
-.delay-400 { animation-delay: 400ms; }
-.delay-500 { animation-delay: 500ms; }
-
+.anim-delay-0  { animation-delay: 0ms; }
+.anim-delay-1  { animation-delay: 80ms; }
+.anim-delay-2  { animation-delay: 160ms; }
+.anim-delay-3  { animation-delay: 260ms; }
+.anim-delay-4  { animation-delay: 380ms; }
+.anim-delay-5  { animation-delay: 520ms; }
+.anim-delay-6  { animation-delay: 680ms; }
+.anim-delay-7  { animation-delay: 860ms; }
