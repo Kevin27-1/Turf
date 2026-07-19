@@ -1129,7 +1129,7 @@ export default function App() {
           </section>
 
           {/* REVIEWS & TESTIMONIALS SECTION */}
-          {reviewsData && (
+          {reviewsData && reviewsData.reviews && Array.isArray(reviewsData.reviews) && reviewsData.reviews.length > 0 && (
             <section className="scroll-reveal w-full py-8 border-t border-neutral-900 md:py-16">
               <div className="md:max-w-7xl md:mx-auto md:px-16 text-center">
                 <div className="flex justify-between items-end mb-8 px-6 md:px-0">
@@ -1138,10 +1138,10 @@ export default function App() {
                       Google Maps Reviews
                     </h3>
                     <div className="flex items-center gap-2">
-                      <span className="text-xl md:text-2xl font-black text-white">{reviewsData.rating}</span>
+                      <span className="text-xl md:text-2xl font-black text-white">{reviewsData.rating || 5}</span>
                       <span className="text-[#22c55e] text-sm md:text-base font-black">★★★★★</span>
                       <span className="text-[9px] md:text-xs text-neutral-500 font-bold uppercase">
-                        ({reviewsData.total_ratings} Reviews)
+                        ({reviewsData.total_ratings || 0} Reviews)
                       </span>
                     </div>
                   </div>
@@ -1166,7 +1166,7 @@ export default function App() {
                               {r.author_name}
                             </span>
                             <span className="text-[#22c55e] text-[8px]">
-                              {"★".repeat(r.rating)}
+                              {"★".repeat(Math.round(r.rating || 5))}
                             </span>
                           </div>
                           <p className="text-[9.5px] text-neutral-400 font-medium leading-relaxed line-clamp-4">
