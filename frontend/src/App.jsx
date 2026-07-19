@@ -274,7 +274,7 @@ export default function App() {
       clearTimeout(timer);
       observer.disconnect();
     };
-  }, [currentTab]);
+  }, [currentTab, reviewsData]);
 
   // Reservation Hold Timer countdown
 
