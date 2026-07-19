@@ -144,6 +144,7 @@ export default function App() {
   const [cancelingId, setCancelingId] = useState(null);
   const [cancelError, setCancelError] = useState('');
   const [activeCancellation, setActiveCancellation] = useState(null);
+  const [cancelSuccessData, setCancelSuccessData] = useState(null);
 
   // INTERACTIVE HOME STATES
   const [liveTeaserText, setLiveTeaserText] = useState('Checking today\'s schedule...');
@@ -341,8 +342,7 @@ export default function App() {
         throw new Error(data.error || 'Failed to cancel booking');
       }
 
-      alert(data.message);
-      setActiveCancellation(null);
+      setCancelSuccessData({ message: data.message });
 
       // Re-fetch bookings history and slots list
       await fetchBookings();
@@ -2462,9 +2462,51 @@ export default function App() {
         const slotStartTime = new Date(year, month - 1, day, hour, minute, 0, 0);
         const isPastDeadline = b.cancellation_deadline ? new Date(b.cancellation_deadline) <= new Date() : true;
 
+        const closeCancelModal = () => {
+          setActiveCancellation(null);
+          setCancelSuccessData(null);
+          setCancelError('');
+        };
+
+        if (cancelSuccessData) {
+          return (
+            <div className="fixed inset-0 bg-black/85 backdrop-blur-xs z-50 flex items-end justify-center p-4">
+              <div className="absolute inset-0" onClick={closeCancelModal}></div>
+
+              <div className="w-full max-w-sm bg-neutral-950 border border-neutral-800 rounded-none relative z-10 p-6 text-center transform translate-y-0 transition duration-300 animate-in slide-in-from-bottom duration-300">
+                
+                <div className="w-12 h-12 bg-[#22c55e]/10 flex items-center justify-center border border-[#22c55e]/30 mb-4 mx-auto">
+                  <CheckCircle className="w-7 h-7 text-[#22c55e]" />
+                </div>
+
+                <h3 className="text-base font-black text-white uppercase tracking-tight mb-2">
+                  Cancellation Confirmed
+                </h3>
+                
+                <p className="text-[10px] text-neutral-500 uppercase font-bold tracking-wider mb-4">
+                  Ref: {b.id.substring(0, 8).toUpperCase()}
+                </p>
+
+                <div className="p-4 border border-[#22c55e]/30 bg-[#22c55e]/5 text-[#22c55e] text-xs font-bold uppercase tracking-wider mb-5">
+                  {cancelSuccessData.message}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={closeCancelModal}
+                  className="w-full py-3 bg-[#22c55e] text-black font-extrabold text-xs uppercase tracking-wider rounded-none shadow-[2px_2px_0px_#000] hover:bg-[#1db252] transition"
+                >
+                  Okay
+                </button>
+
+              </div>
+            </div>
+          );
+        }
+
         return (
           <div className="fixed inset-0 bg-black/85 backdrop-blur-xs z-50 flex items-end justify-center p-4">
-            <div className="absolute inset-0" onClick={() => setActiveCancellation(null)}></div>
+            <div className="absolute inset-0" onClick={closeCancelModal}></div>
 
             <div className="w-full max-w-sm bg-neutral-950 border border-neutral-800 rounded-none relative z-10 p-5 transform translate-y-0 transition duration-300 animate-in slide-in-from-bottom duration-300">
               
@@ -2514,7 +2556,7 @@ export default function App() {
                   <button
                     type="button"
                     disabled={cancelingId === b.id}
-                    onClick={() => { setActiveCancellation(null); setCancelError(''); }}
+                    onClick={closeCancelModal}
                     className="flex-1 py-3 border border-neutral-900 text-neutral-500 hover:text-white font-bold text-xs uppercase tracking-wider rounded-none transition"
                   >
                     Go Back
