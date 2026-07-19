@@ -33,7 +33,7 @@ export default function BounceCards({
           delay: animationDelay
         }
       );
-    }, containerRef);
+    }, containerRef.current);
     return () => ctx.revert();
   }, [animationStagger, easeType, animationDelay]);
 
@@ -63,7 +63,7 @@ export default function BounceCards({
   const pushSiblings = hoveredIdx => {
     if (!enableHover || !containerRef.current) return;
 
-    const q = gsap.utils.selector(containerRef);
+    const q = gsap.utils.selector(containerRef.current);
 
     cards.forEach((_, i) => {
       const target = q(`.card-${i}`);
@@ -104,7 +104,7 @@ export default function BounceCards({
   const resetSiblings = () => {
     if (!enableHover || !containerRef.current) return;
 
-    const q = gsap.utils.selector(containerRef);
+    const q = gsap.utils.selector(containerRef.current);
 
     cards.forEach((_, i) => {
       const target = q(`.card-${i}`);
