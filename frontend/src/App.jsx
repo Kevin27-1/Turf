@@ -176,16 +176,7 @@ export default function App() {
           });
 
           // Load user bookings from server
-          const res = await fetch('/api/bookings', {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            setMyBookings(data);
-          } else if (res.status === 401) {
-            // Token expired or invalid
-            handleSignOut();
-          }
+          await fetchBookings();
         } catch (err) {
           console.error("Failed to restore session:", err);
           handleSignOut();
@@ -289,6 +280,88 @@ export default function App() {
       setError('Could not connect to server. Please ensure the backend is running.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchBookings = async () => {
+    const token = localStorage.getItem('jwt_token');
+    if (!token) return;
+    try {
+      const res = await fetch('/api/bookings', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMyBookings(data);
+      } else if (res.status === 401) {
+        handleSignOut();
+      }
+    } catch (err) {
+      console.error("Failed to fetch bookings:", err);
+    }
+  };
+
+  const formatDeadlineDisplay = (isoString) => {
+    if (!isoString) return '';
+    const dateObj = new Date(isoString);
+    const today = new Date();
+    const tomorrow = new Date();
+    tomorrow.setDate(today.getDate() + 1);
+
+    const isToday = dateObj.toDateString() === today.toDateString();
+    const isTomorrow = dateObj.toDateString() === tomorrow.toDateString();
+
+    const timeStr = dateObj.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+    if (isToday) {
+      return `${timeStr} today`;
+    } else if (isTomorrow) {
+      return `${timeStr} tomorrow`;
+    } else {
+      const dateStr = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return `${dateStr} at ${timeStr}`;
+    }
+  };
+
+  const handleCancelBooking = async (bookingId, isPastDeadline, advanceAmount, e) => {
+    if (e) e.stopPropagation(); // Prevent opening receipt modal
+
+    const confirmMsg = isPastDeadline
+      ? "Cancellation window has passed. No refund will be issued. Cancel anyway?"
+      : `You'll receive a full refund of ₹${advanceAmount}. Confirm cancellation?`;
+
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    setCancelingId(bookingId);
+    setCancelError('');
+    try {
+      const token = localStorage.getItem('jwt_token');
+      const res = await fetch(`/api/bookings/${bookingId}/cancel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to cancel booking');
+      }
+
+      alert(data.message);
+
+      // Re-fetch bookings history and slots list
+      await fetchBookings();
+      if (selectedDate) {
+        await fetchSlots(selectedDate);
+      }
+    } catch (err) {
+      console.error('Error cancelling booking:', err);
+      alert(err.message);
+    } finally {
+      setCancelingId(null);
     }
   };
 
@@ -566,39 +639,7 @@ export default function App() {
     setTimeout(() => setInviteCopied(false), 2000);
   };
 
-  // Backend Booking Cancellation
-  const handleCancelBooking = async (id) => {
-    setCancelingId(id);
-    setCancelError('');
 
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch(`/api/bookings/${id}`, { 
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to cancel booking');
-      }
-
-      const updated = myBookings.filter(b => b.id !== id);
-      setMyBookings(updated);
-
-      if (selectedDate) {
-        fetchSlots(selectedDate);
-      }
-      fetchLiveTeaser();
-    } catch (err) {
-      console.error(err);
-      setCancelError(err.message || 'Error occurred while canceling.');
-    } finally {
-      setCancelingId(null);
-    }
-  };
 
   const handleRequestOtp = async (e) => {
     e.preventDefault();
@@ -1357,44 +1398,106 @@ export default function App() {
                 </div>
               ) : (
                 <div className="space-y-4 max-h-[60vh] overflow-y-auto no-scrollbar pr-1 pb-6">
-                  {myBookings.map((b) => (
-                    <div 
-                      key={b.id} 
-                      className="border border-neutral-900 bg-neutral-950/40 p-4 hover:border-neutral-700 cursor-pointer transition relative"
-                      onClick={() => setConfirmedBooking(b)}
-                    >
-                      <span className="absolute top-4 right-4 text-[9px] uppercase font-bold text-neutral-600 tracking-wider">
-                        Tap to View
-                      </span>
+                  {myBookings.map((b) => {
+                    const isCancelled = b.booking_status === 'cancelled';
+                    
+                    // Check if upcoming
+                    const [year, month, day] = b.slot.date.split('-').map(Number);
+                    const [hour, minute] = b.slot.start_time.split(':').map(Number);
+                    const slotStartTime = new Date(year, month - 1, day, hour, minute, 0, 0);
+                    const isUpcoming = slotStartTime > new Date();
 
-                      <div className="text-[9px] font-mono text-neutral-600 uppercase mb-2">
-                        ID: {b.id.substring(0, 8).toUpperCase()}
-                      </div>
+                    const isPastDeadline = b.cancellation_deadline ? new Date(b.cancellation_deadline) <= new Date() : true;
+                    
+                    return (
+                      <div 
+                        key={b.id} 
+                        className={`border bg-neutral-950/40 p-4 hover:border-neutral-700 cursor-pointer transition relative ${
+                          isCancelled ? 'border-neutral-955 bg-neutral-955/20 opacity-55' : 'border-neutral-900'
+                        }`}
+                        onClick={() => setConfirmedBooking(b)}
+                      >
+                        {isCancelled ? (
+                          <span className="absolute top-4 right-4 text-[9px] uppercase font-bold text-red-500 tracking-wider">
+                            Cancelled
+                          </span>
+                        ) : (
+                          <span className="absolute top-4 right-4 text-[9px] uppercase font-bold text-neutral-600 tracking-wider">
+                            Tap to View
+                          </span>
+                        )}
 
-                      <div className="text-sm font-black text-white uppercase">
-                        {formatTime12h(b.slot.start_time)} - {formatTime12h(b.slot.end_time)}
-                      </div>
-
-                      <div className="text-xs font-bold text-[#22c55e] mt-1">
-                        {formatDateDisplayShort(b.slot.date)}
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-neutral-900/60 text-[10px] text-neutral-400">
-                        <div>
-                          <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">Player</span>
-                          <span className="font-bold text-neutral-300 truncate block">{b.customer_name}</span>
+                        <div className="text-[9px] font-mono text-neutral-600 uppercase mb-2">
+                          ID: {b.id.substring(0, 8).toUpperCase()}
                         </div>
-                        <div>
-                          <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">Paid</span>
-                          <span className="text-[#22c55e] font-bold block">₹{b.advance_paid_amount}</span>
+
+                        <div className="text-sm font-black text-white uppercase">
+                          {formatTime12h(b.slot.start_time)} - {formatTime12h(b.slot.end_time)}
                         </div>
-                        <div>
-                          <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">At Venue</span>
-                          <span className="font-bold text-amber-500 block">₹{b.balance_amount}</span>
+
+                        <div className="text-xs font-bold text-[#22c55e] mt-1">
+                          {formatDateDisplayShort(b.slot.date)}
                         </div>
+
+                        <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-neutral-900/60 text-[10px] text-neutral-400">
+                          <div>
+                            <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">Player</span>
+                            <span className="font-bold text-neutral-300 truncate block">{b.customer_name}</span>
+                          </div>
+                          <div>
+                            <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">Paid</span>
+                            <span className="text-[#22c55e] font-bold block">₹{b.advance_paid_amount}</span>
+                          </div>
+                          <div>
+                            <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">At Venue</span>
+                            <span className="font-bold text-amber-500 block">₹{b.balance_amount}</span>
+                          </div>
+                        </div>
+
+                        {/* Cancellation Display & Button */}
+                        {isCancelled && b.refund_status && (
+                          <div className="mt-3 pt-3 border-t border-dashed border-neutral-900 text-[10px] uppercase font-bold tracking-wider">
+                            {b.refund_status === 'processed' && (
+                              <span className="text-[#22c55e]">Refund processed (₹{b.refund_amount})</span>
+                            )}
+                            {b.refund_status === 'pending' && (
+                              <span className="text-amber-500">Refund pending (₹{b.refund_amount})</span>
+                            )}
+                            {b.refund_status === 'not_applicable' && (
+                              <span className="text-neutral-500">No refund applies</span>
+                            )}
+                          </div>
+                        )}
+
+                        {!isCancelled && isUpcoming && (
+                          <div className="mt-3 pt-3 border-t border-dashed border-neutral-900 flex flex-col gap-2">
+                            <div className="text-[9px] uppercase font-bold tracking-wider">
+                              {!isPastDeadline ? (
+                                <span className="text-[#22c55e]">
+                                  Free cancellation until {formatDeadlineDisplay(b.cancellation_deadline)}
+                                </span>
+                              ) : (
+                                <span className="text-red-500/80">
+                                  Cancellation window has passed (No Refund)
+                                </span>
+                              )}
+                            </div>
+                            <button
+                              disabled={cancelingId === b.id}
+                              onClick={(e) => handleCancelBooking(b.id, isPastDeadline, b.advance_paid_amount, e)}
+                              className={`w-full py-2.5 font-extrabold text-[9px] uppercase tracking-wider transition ${
+                                cancelingId === b.id
+                                  ? 'bg-neutral-800 text-neutral-500 cursor-wait'
+                                  : 'border border-red-500/30 text-red-500 hover:bg-red-500/5 hover:border-red-500'
+                              }`}
+                            >
+                              {cancelingId === b.id ? 'Cancelling...' : 'Cancel Booking'}
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

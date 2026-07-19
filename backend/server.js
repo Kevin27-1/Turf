@@ -21,6 +21,7 @@ const razorpay = new Razorpay({
 });
 
 const ADVANCE_PAYMENT_PERCENTAGE = 40; // 40% advance payment required online
+const CANCELLATION_WINDOW_HOURS = 4; // 4 hours cancellation window before slot starts
 
 
 // Initialize Firebase Admin SDK if not already initialized by db.js
@@ -208,11 +209,12 @@ app.get('/api/bookings', authenticateUser, async (req, res) => {
       `SELECT b.id, b.slot_id, b.created_at, b.user_id,
               u.name as customer_name, u.phone as customer_phone,
               b.total_amount, b.advance_amount, b.advance_paid_amount, b.balance_amount, b.booking_status,
+              b.cancellation_deadline, b.cancelled_at, b.refund_amount, b.refund_status,
               s.date, s.start_time, s.end_time, s.price
        FROM bookings b
        JOIN slots s ON b.slot_id = s.id
        JOIN users u ON b.user_id = u.id
-       WHERE b.user_id = $1 AND b.booking_status = 'confirmed'
+       WHERE b.user_id = $1 AND b.booking_status != 'pending'
        ORDER BY s.date DESC, s.start_time DESC`,
       [user_id]
     );
@@ -229,6 +231,10 @@ app.get('/api/bookings', authenticateUser, async (req, res) => {
       advance_paid_amount: row.advance_paid_amount,
       balance_amount: row.balance_amount,
       booking_status: row.booking_status,
+      cancellation_deadline: row.cancellation_deadline,
+      cancelled_at: row.cancelled_at,
+      refund_amount: row.refund_amount,
+      refund_status: row.refund_status,
       slot: {
         date: row.date,
         start_time: row.start_time,
@@ -361,10 +367,12 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
       return res.status(400).json({ error: 'Signature verification failed. Payment was not authentic.' });
     }
 
-    // 2. Fetch the corresponding pending booking
+    // 2. Fetch the corresponding pending booking (joining slots to calculate deadline)
     const bookingCheck = await query(
-      `SELECT b.id, b.slot_id, b.user_id, b.total_amount, b.advance_amount 
+      `SELECT b.id, b.slot_id, b.user_id, b.total_amount, b.advance_amount,
+              s.date, s.start_time
        FROM bookings b 
+       JOIN slots s ON b.slot_id = s.id
        WHERE b.razorpay_order_id = $1`,
       [razorpay_order_id]
     );
@@ -380,18 +388,25 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden: You cannot confirm a booking for another user.' });
     }
 
+    // Calculate cancellation_deadline = slot.start_time - 4 hours
+    const [year, month, day] = booking.date.split('-').map(Number);
+    const [hour, minute] = booking.start_time.split(':').map(Number);
+    const slotStart = new Date(year, month - 1, day, hour, minute, 0, 0);
+    const deadline = new Date(slotStart.getTime() - CANCELLATION_WINDOW_HOURS * 60 * 60 * 1000);
+    const cancellationDeadline = deadline.toISOString();
+
     // 3. Update database status in a transaction
     await query('BEGIN');
 
     const advancePaid = booking.advance_amount;
     const balance = booking.total_amount - advancePaid;
 
-    // Confirm booking and payment details
+    // Confirm booking, payment details, and cancellation deadline
     await query(
       `UPDATE bookings 
-       SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5 
-       WHERE razorpay_order_id = $6`,
-      [true, advancePaid, balance, 'confirmed', razorpay_payment_id, razorpay_order_id]
+       SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5, cancellation_deadline = $6 
+       WHERE razorpay_order_id = $7`,
+      [true, advancePaid, balance, 'confirmed', razorpay_payment_id, cancellationDeadline, razorpay_order_id]
     );
 
     // Confirm slot status is permanently booked
@@ -407,6 +422,7 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
       `SELECT b.id, b.slot_id, b.created_at, b.user_id,
               u.name as customer_name, u.phone as customer_phone,
               b.total_amount, b.advance_amount, b.advance_paid_amount, b.balance_amount, b.booking_status,
+              b.cancellation_deadline, b.cancelled_at, b.refund_amount, b.refund_status,
               s.date, s.start_time, s.end_time, s.price
        FROM bookings b
        JOIN slots s ON b.slot_id = s.id
@@ -428,6 +444,10 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
       advance_paid_amount: updatedBooking.advance_paid_amount,
       balance_amount: updatedBooking.balance_amount,
       booking_status: updatedBooking.booking_status,
+      cancellation_deadline: updatedBooking.cancellation_deadline,
+      cancelled_at: updatedBooking.cancelled_at,
+      refund_amount: updatedBooking.refund_amount,
+      refund_status: updatedBooking.refund_status,
       slot: {
         date: updatedBooking.date,
         start_time: updatedBooking.start_time,
@@ -451,15 +471,20 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
   }
 });
 
-// DELETE /api/bookings/:id
-app.delete('/api/bookings/:id', authenticateUser, async (req, res) => {
+// POST /api/bookings/:id/cancel (Cancel a booking with 4-hour refund cutoff rule)
+app.post('/api/bookings/:id/cancel', authenticateUser, async (req, res) => {
   const { id } = req.params;
   const user_id = req.user.id;
 
   try {
-    // 1. Get the booking to find the slot and user credentials
+    // 1. Get the booking to check cancellation eligibility
     const bookingCheck = await query(
-      'SELECT slot_id, user_id FROM bookings WHERE id = $1',
+      `SELECT b.id, b.slot_id, b.user_id, b.advance_paid_amount, b.razorpay_payment_id, 
+              b.cancellation_deadline, b.booking_status,
+              s.date, s.start_time, s.end_time
+       FROM bookings b
+       JOIN slots s ON b.slot_id = s.id
+       WHERE b.id = $1`,
       [id]
     );
 
@@ -474,46 +499,96 @@ app.delete('/api/bookings/:id', authenticateUser, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden: You cannot cancel another user\'s booking' });
     }
 
-    const { slot_id } = booking;
-
-    // 2. Get the slot to verify start time
-    const slotCheck = await query(
-      'SELECT date, start_time FROM slots WHERE id = $1',
-      [slot_id]
-    );
-
-    if (slotCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Associated slot not found' });
+    // Check if already cancelled
+    if (booking.booking_status === 'cancelled') {
+      return res.status(400).json({ error: 'This booking has already been cancelled.' });
     }
 
-    const slot = slotCheck.rows[0];
+    const now = new Date();
+    const deadline = new Date(booking.cancellation_deadline);
+    const isEligibleForRefund = now < deadline;
 
-    // Parse date and time to construct slot Date object
-    const [year, month, day] = slot.date.split('-').map(Number);
-    const [hour, minute] = slot.start_time.split(':').map(Number);
-    const slotStartTime = new Date(year, month - 1, day, hour, minute, 0, 0);
-
-    const timeDiffMs = slotStartTime.getTime() - Date.now();
-    const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
-
-    if (timeDiffHours < 4) {
-      return res.status(400).json({ 
-        error: 'Bookings can only be canceled at least 4 hours before the slot start time.' 
-      });
-    }
-
-    // 3. Perform cancellation in a transaction
+    // 2. Perform cancellation database updates in a transaction
     await query('BEGIN');
 
-    // Update slot status back to available
-    await query('UPDATE slots SET status = $1 WHERE id = $2', ['available', slot_id]);
+    let refundStatus = 'not_applicable';
+    let refundAmount = 0;
 
-    // Delete booking record
-    await query('DELETE FROM bookings WHERE id = $1', [id]);
+    if (isEligibleForRefund) {
+      refundStatus = 'pending';
+      refundAmount = booking.advance_paid_amount;
+
+      // Update booking status and refund state
+      await query(
+        `UPDATE bookings 
+         SET booking_status = $1, cancelled_at = $2, refund_amount = $3, refund_status = $4 
+         WHERE id = $5`,
+        ['cancelled', now.toISOString(), refundAmount, refundStatus, id]
+      );
+
+      // Revert slot status back to available
+      await query(
+        "UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1",
+        [booking.slot_id]
+      );
+    } else {
+      // Cancellation window has passed: no refund, and slot status is left as-is (remains booked)
+      await query(
+        `UPDATE bookings 
+         SET booking_status = $1, cancelled_at = $2, refund_amount = $3, refund_status = $4 
+         WHERE id = $5`,
+        ['cancelled', now.toISOString(), refundAmount, refundStatus, id]
+      );
+    }
 
     await query('COMMIT');
 
-    res.json({ success: true, message: 'Booking canceled successfully' });
+    // 3. Trigger Razorpay Refund API if eligible
+    if (isEligibleForRefund && booking.razorpay_payment_id) {
+      try {
+        console.log(`Initiating Razorpay refund for payment ${booking.razorpay_payment_id}...`);
+        await razorpay.payments.refund(booking.razorpay_payment_id, {
+          amount: Math.round(refundAmount * 100), // convert INR rupees to paise
+          notes: {
+            booking_id: booking.id,
+            reason: 'Customer cancelled booking within window'
+          }
+        });
+
+        // Update refund_status to processed
+        await query(
+          `UPDATE bookings 
+           SET refund_status = $1 
+           WHERE id = $2`,
+          ['processed', id]
+        );
+
+        return res.json({
+          success: true,
+          refunded: true,
+          refund_amount: refundAmount,
+          message: `Booking cancelled. ₹${refundAmount} will be refunded to your original payment method within 5-7 business days.`
+        });
+      } catch (rzpErr) {
+        console.error('[RAZORPAY REFUND ERROR] Failed to initiate refund:', rzpErr);
+        // Refund remains in 'pending' status in the database
+        return res.json({
+          success: true,
+          refunded: true,
+          refund_amount: refundAmount,
+          warning: 'Refund initiation failed on gateway. Status set to pending for manual processing.',
+          message: `Booking cancelled, but the refund is currently pending. Contact admin to complete the refund.`
+        });
+      }
+    }
+
+    // Return non-refunded success details
+    return res.json({
+      success: true,
+      refunded: false,
+      refund_amount: 0,
+      message: 'Booking cancelled. As per policy, no refund applies since this was cancelled within 4 hours of the slot.'
+    });
 
   } catch (err) {
     try {
@@ -521,7 +596,7 @@ app.delete('/api/bookings/:id', authenticateUser, async (req, res) => {
     } catch (rbErr) {
       console.error('Error rolling back cancellation:', rbErr);
     }
-    console.error('Error canceling booking:', err);
+    console.error('Error cancelling booking:', err);
     res.status(500).json({ error: 'Failed to process booking cancellation' });
   }
 });

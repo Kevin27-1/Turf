@@ -78,9 +78,9 @@ if (!isPostgres && !isFirestore) {
         // Perform database migration check first
         sqliteDb.all("PRAGMA table_info(bookings)", [], (err, columns) => {
           if (!err && columns && columns.length > 0) {
-            const hasTotalAmount = columns.some(col => col.name === 'total_amount');
-            if (!hasTotalAmount) {
-              console.log("Old bookings table schema detected (missing total_amount). Dropping tables for schema migration...");
+            const hasCancellationDeadline = columns.some(col => col.name === 'cancellation_deadline');
+            if (!hasCancellationDeadline) {
+              console.log("Old bookings table schema detected (missing cancellation_deadline). Dropping tables for schema migration...");
               sqliteDb.serialize(() => {
                 sqliteDb.run("DROP TABLE IF EXISTS bookings", (dropErr) => {
                   if (dropErr) console.error("Failed to drop bookings table:", dropErr.message);
@@ -109,10 +109,10 @@ async function checkAndMigratePostgres() {
     const tableCheck = await pgPool.query(`
       SELECT column_name 
       FROM information_schema.columns 
-      WHERE table_name = 'bookings' AND column_name = 'total_amount'
+      WHERE table_name = 'bookings' AND column_name = 'cancellation_deadline'
     `);
     if (tableCheck.rows.length === 0) {
-      console.log("Migration: Dropping old tables to recreate with new payment integration schema in Postgres...");
+      console.log("Migration: Dropping old tables to recreate with new cancellation policy schema in Postgres...");
       await pgPool.query("DROP TABLE IF EXISTS bookings CASCADE");
       await pgPool.query("DROP TABLE IF EXISTS slots CASCADE");
     }
@@ -157,6 +157,10 @@ function initializeSqliteTables() {
       razorpay_payment_id TEXT,
       payment_verified BOOLEAN DEFAULT FALSE,
       booking_status TEXT DEFAULT 'pending',
+      cancellation_deadline TEXT,
+      cancelled_at TEXT,
+      refund_amount REAL,
+      refund_status TEXT,
       FOREIGN KEY (slot_id) REFERENCES slots(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
@@ -206,6 +210,10 @@ async function initializePostgresTables() {
       razorpay_payment_id TEXT,
       payment_verified BOOLEAN DEFAULT FALSE,
       booking_status TEXT DEFAULT 'pending',
+      cancellation_deadline TEXT,
+      cancelled_at TEXT,
+      refund_amount REAL,
+      refund_status TEXT,
       FOREIGN KEY (slot_id) REFERENCES slots(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
@@ -398,6 +406,10 @@ export const query = async (text, params = []) => {
             advance_paid_amount: data.advance_paid_amount,
             balance_amount: data.balance_amount,
             booking_status: data.booking_status,
+            cancellation_deadline: data.cancellation_deadline || null,
+            cancelled_at: data.cancelled_at || null,
+            refund_amount: data.refund_amount !== undefined ? data.refund_amount : null,
+            refund_status: data.refund_status || null,
             date: data.slot?.date,
             start_time: data.slot?.start_time,
             end_time: data.slot?.end_time,
@@ -414,17 +426,23 @@ export const query = async (text, params = []) => {
       }
       
       // 11b. UPDATE bookings SET payment_verified = ... WHERE razorpay_order_id = ...
-      if (trimmedText.startsWith('UPDATE bookings SET payment_verified =')) {
-        const snap = await firestoreDb.collection('bookings').where('razorpay_order_id', '==', params[5]).get();
+      if (trimmedText.startsWith('UPDATE bookings SET payment_verified =') || trimmedText.startsWith('UPDATE bookings SET payment_verified=')) {
+        // If query has 7 params (meaning it includes cancellation_deadline), order_id is params[6], else params[5]
+        const orderIdParam = params.length >= 7 ? params[6] : params[5];
+        const snap = await firestoreDb.collection('bookings').where('razorpay_order_id', '==', orderIdParam).get();
         const batch = firestoreDb.batch();
         snap.docs.forEach(doc => {
-          batch.update(doc.ref, {
+          const updateData = {
             payment_verified: params[0] === true || params[0] === 1,
             advance_paid_amount: params[1],
             balance_amount: params[2],
             booking_status: params[3],
             razorpay_payment_id: params[4]
-          });
+          };
+          if (params.length >= 7) {
+            updateData.cancellation_deadline = params[5];
+          }
+          batch.update(doc.ref, updateData);
         });
         await batch.commit();
         return { rows: [] };
@@ -448,6 +466,48 @@ export const query = async (text, params = []) => {
             }]
           };
         }
+        return { rows: [] };
+      }
+
+      // 11d. SELECT b.id, b.slot_id, b.user_id, ... FROM bookings b JOIN slots s ... WHERE b.id = $1
+      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('WHERE b.id = $1')) {
+        const doc = await firestoreDb.collection('bookings').doc(params[0]).get();
+        if (doc.exists) {
+          const data = doc.data();
+          return {
+            rows: [{
+              id: doc.id,
+              slot_id: data.slot_id,
+              user_id: data.user_id,
+              advance_paid_amount: data.advance_paid_amount,
+              razorpay_payment_id: data.razorpay_payment_id,
+              cancellation_deadline: data.cancellation_deadline,
+              booking_status: data.booking_status,
+              date: data.slot?.date,
+              start_time: data.slot?.start_time,
+              end_time: data.slot?.end_time
+            }]
+          };
+        }
+        return { rows: [] };
+      }
+
+      // 11e. UPDATE bookings SET booking_status = ... WHERE id = ...
+      if (trimmedText.startsWith('UPDATE bookings SET booking_status =') || trimmedText.startsWith('UPDATE bookings SET booking_status=')) {
+        await firestoreDb.collection('bookings').doc(params[4]).update({
+          booking_status: params[0],
+          cancelled_at: params[1],
+          refund_amount: params[2],
+          refund_status: params[3]
+        });
+        return { rows: [] };
+      }
+
+      // 11f. UPDATE bookings SET refund_status = ... WHERE id = ...
+      if (trimmedText.startsWith('UPDATE bookings SET refund_status =') || trimmedText.startsWith('UPDATE bookings SET refund_status=')) {
+        await firestoreDb.collection('bookings').doc(params[1]).update({
+          refund_status: params[0]
+        });
         return { rows: [] };
       }
       
