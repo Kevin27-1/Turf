@@ -30,7 +30,7 @@ async function getAdminSettings() {
     console.error('Failed to load admin settings from DB, using fallback defaults:', err.message);
   }
   return {
-    turf_name: 'Naduparabil Turf',
+    turf_name: 'Golden Arm Turf',
     operating_hours_start: '06:00',
     operating_hours_end: '23:00',
     slot_duration_minutes: 60,
@@ -647,7 +647,7 @@ const authenticateAdmin = (req, res, next) => {
 // POST /api/admin/login
 app.post('/api/admin/login', (req, res) => {
   const { email, password } = req.body;
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@naduparabil.com';
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@goldenarm.com';
   const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
 
   if (email === adminEmail && password === adminPassword) {

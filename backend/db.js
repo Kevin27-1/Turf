@@ -45,7 +45,7 @@ async function initializeFirestoreSettings() {
     if (!doc.exists) {
       console.log('Initializing default admin settings in Firestore...');
       await docRef.set({
-        turf_name: 'Naduparabil Turf',
+        turf_name: 'Golden Arm Turf',
         operating_hours_start: '06:00',
         operating_hours_end: '23:00',
         slot_duration_minutes: 60,
@@ -216,7 +216,7 @@ function initializeSqliteTables() {
           id, turf_name, operating_hours_start, operating_hours_end, 
           slot_duration_minutes, price_per_slot, advance_payment_percentage, 
           cancellation_window_hours, sport_types_offered
-        ) VALUES (1, 'Naduparabil Turf', '06:00', '23:00', 60, 1200, 40, 4, 'Football, Cricket')
+        ) VALUES (1, 'Golden Arm Turf', '06:00', '23:00', 60, 1200, 40, 4, 'Football, Cricket')
       `, (seedErr) => {
         if (seedErr) console.error('Failed to seed SQLite default settings:', seedErr.message);
       });
@@ -289,7 +289,7 @@ async function initializePostgresTables() {
         id, turf_name, operating_hours_start, operating_hours_end, 
         slot_duration_minutes, price_per_slot, advance_payment_percentage, 
         cancellation_window_hours, sport_types_offered
-      ) VALUES (1, 'Naduparabil Turf', '06:00', '23:00', 60, 1200, 40, 4, 'Football, Cricket')
+      ) VALUES (1, 'Golden Arm Turf', '06:00', '23:00', 60, 1200, 40, 4, 'Football, Cricket')
       ON CONFLICT (id) DO NOTHING
     `);
   } catch (err) {

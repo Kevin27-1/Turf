@@ -87,7 +87,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState('home'); // 'home', 'book', 'passes', 'profile'
   const [profileSub, setProfileSub] = useState(null); // null, 'edit', 'faq', 'settings', 'help', 'cancel-board', 'invite', 'rate'
   const [publicSettings, setPublicSettings] = useState({
-    turf_name: 'Naduparabil Turf',
+    turf_name: 'Golden Arm Turf',
     sport_types_offered: ['Football', 'Cricket']
   });
 
@@ -174,11 +174,11 @@ export default function App() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
   const galleryImages = [
-    { src: '/turf_real_day.jpg', caption: 'Naduparabil Turf Pitch View (Day)' },
+    { src: '/turf_real_day.jpg', caption: 'Golden Arm Turf Pitch View (Day)' },
     { src: '/turf_real_night.jpg', caption: 'Playing at Night Under Lights' },
     { src: '/turf_grass.jpg', caption: 'FIFA-certified Surface Close-up' },
     { src: '/turf_amenities.jpg', caption: 'Clean Changing Rooms & Lockers' },
-    { src: '/turf_real_map.png', caption: 'Naduparabil Turf Map Location' }
+    { src: '/turf_real_map.png', caption: 'Golden Arm Turf Map Location' }
   ];
 
   // Restore session from localStorage on Mount
@@ -674,7 +674,7 @@ export default function App() {
 
   // Invite clipboard copy mock
   const handleInviteCopy = () => {
-    navigator.clipboard.writeText("Hey! Play at Naduparabil Turf. Book slots here: http://localhost:5173/");
+    navigator.clipboard.writeText("Hey! Play at Golden Arm Turf. Book slots here: http://localhost:5173/");
     setInviteCopied(true);
     setTimeout(() => setInviteCopied(false), 2000);
   };
@@ -930,7 +930,7 @@ export default function App() {
             {currentTab === 'profile' && 'User Dashboard'}
           </span>
           <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">
-            Naduparabil Turf
+            Golden Arm Turf
           </span>
         </header>
       )}
@@ -947,7 +947,7 @@ export default function App() {
             <div className="absolute inset-0 z-0">
               <img 
                 src="/turf_hero.jpg" 
-                alt="Naduparabil Turf" 
+                alt="Golden Arm Turf" 
                 className="w-full h-full object-cover animate-fade-scale"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-black/50 to-transparent md:bg-gradient-to-r md:from-black/90 md:via-black/60 md:to-transparent"></div>
@@ -1155,21 +1155,21 @@ export default function App() {
                 <div className="border border-neutral-900 bg-neutral-950 p-4 md:p-6">
                   <div className="w-full h-[150px] md:h-[200px] border border-neutral-900 mb-4 bg-[#070707] overflow-hidden">
                     <iframe
-                      title="Naduparabil Turf Location Map"
+                      title="Golden Arm Turf Location Map"
                       width="100%"
                       height="100%"
                       style={{ border: 0 }}
                       loading="lazy"
                       allowFullScreen
-                      src="https://maps.google.com/maps?q=Naduparabil+Turf+Alakode&t=&z=15&ie=UTF8&iwloc=&output=embed"
+                      src="https://maps.google.com/maps?q=Golden+Arm+Turf+Alakode&t=&z=15&ie=UTF8&iwloc=&output=embed"
                     ></iframe>
                   </div>
                   <span className="text-[8px] uppercase font-bold text-neutral-500 block">Address</span>
                   <p className="text-[10px] md:text-xs font-bold text-white mt-0.5 leading-relaxed">
-                    Naduparabil Turf, Alakode, Kerala 670571
+                    Golden Arm Turf, Alakode, Kerala 670571
                   </p>
                   <a
-                    href="https://maps.google.com/?q=Naduparabil+Turf+Alakode"
+                    href="https://maps.google.com/?q=Golden+Arm+Turf+Alakode"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="mt-4 w-full py-3 border border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/5 font-extrabold text-[10px] uppercase tracking-wider rounded-none transition flex items-center justify-center gap-1.5"
@@ -1187,7 +1187,7 @@ export default function App() {
           {showStickyCTA && (
             <div className="fixed bottom-20 left-0 right-0 max-w-md mx-auto p-4 z-40 bg-neutral-950 border border-neutral-900 flex justify-between items-center animate-slide-up-sticky shadow-[0_-5px_20px_rgba(0,0,0,0.8)]">
               <div>
-                <span className="text-[9px] uppercase font-bold text-[#22c55e] block tracking-wider">Naduparabil Turf</span>
+                <span className="text-[9px] uppercase font-bold text-[#22c55e] block tracking-wider">Golden Arm Turf</span>
                 <span className="text-[10px] font-black text-white block uppercase mt-0.5">Court Open • book now</span>
               </div>
               <button
@@ -1398,7 +1398,7 @@ export default function App() {
                 <div className="w-full relative bg-neutral-950 border border-[#22c55e]/30 p-5 text-left mb-6 shadow-xl">
                   <div className="border-b border-dashed border-neutral-800 pb-4 mb-4">
                     <span className="text-[9px] font-bold text-[#22c55e] uppercase tracking-widest">
-                      Naduparabil Turf
+                      Golden Arm Turf
                     </span>
                     <h3 className="text-base font-black text-white mt-1 uppercase">
                       Court booking voucher
@@ -2053,7 +2053,7 @@ export default function App() {
 
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <a
-                  href="https://wa.me/919876543210?text=Hello%20Naduparabil%20Turf%20support"
+                  href="https://wa.me/919876543210?text=Hello%20Golden%20Arm%20Turf%20support"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="p-4 border border-neutral-900 bg-neutral-950/40 text-center flex flex-col items-center hover:border-[#22c55e] transition"
@@ -2272,7 +2272,7 @@ export default function App() {
               </button>
 
               <h3 className="text-base font-black text-white uppercase mb-2">Invite a Friend</h3>
-              <p className="text-[10px] text-neutral-500 mb-6">Invite friends to play and book at Naduparabil Turf.</p>
+              <p className="text-[10px] text-neutral-500 mb-6">Invite friends to play and book at Golden Arm Turf.</p>
 
               <div className="border border-neutral-900 bg-neutral-950/20 p-5 text-center flex flex-col items-center">
                 <Share2 className="w-10 h-10 text-[#22c55e] mb-3" />
@@ -2282,7 +2282,7 @@ export default function App() {
                 </p>
 
                 <div className="w-full bg-[#070707] border border-neutral-900 p-3 text-[10px] font-mono text-neutral-400 text-left select-all mb-4 break-all">
-                  Hey! Play at Naduparabil Turf. Book slots here: http://localhost:5173/
+                  Hey! Play at Golden Arm Turf. Book slots here: http://localhost:5173/
                 </div>
 
                 <button
@@ -2440,7 +2440,7 @@ export default function App() {
               {galleryImages[lightboxIndex].caption}
             </p>
             <span className="text-[9px] text-neutral-600 uppercase tracking-widest font-bold mt-1 block">
-              Naduparabil Turf • Alakode
+              Golden Arm Turf • Alakode
             </span>
           </div>
         </div>
@@ -3058,7 +3058,7 @@ function AdminApp() {
               <Lock className="w-5 h-5" />
             </div>
             <h2 className="text-lg font-black uppercase tracking-wider text-white">Admin Control Panel</h2>
-            <p className="text-[10px] text-neutral-500 uppercase tracking-widest font-semibold mt-1">Naduparabil Turf Manager</p>
+            <p className="text-[10px] text-neutral-500 uppercase tracking-widest font-semibold mt-1">Golden Arm Turf Manager</p>
           </div>
 
           {loginError && (
@@ -3075,7 +3075,7 @@ function AdminApp() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@naduparabil.com"
+                placeholder="admin@goldenarm.com"
                 className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white placeholder-neutral-700 focus:outline-none focus:border-[#22c55e]"
               />
             </div>
