@@ -78,9 +78,9 @@ if (!isPostgres && !isFirestore) {
         // Perform database migration check first
         sqliteDb.all("PRAGMA table_info(bookings)", [], (err, columns) => {
           if (!err && columns && columns.length > 0) {
-            const hasCancellationDeadline = columns.some(col => col.name === 'cancellation_deadline');
-            if (!hasCancellationDeadline) {
-              console.log("Old bookings table schema detected (missing cancellation_deadline). Dropping tables for schema migration...");
+            const hasRefundStatus = columns.some(col => col.name === 'refund_status');
+            if (!hasRefundStatus) {
+              console.log("Old bookings table schema detected (missing refund_status). Dropping tables for schema migration...");
               sqliteDb.serialize(() => {
                 sqliteDb.run("DROP TABLE IF EXISTS bookings", (dropErr) => {
                   if (dropErr) console.error("Failed to drop bookings table:", dropErr.message);
@@ -109,7 +109,7 @@ async function checkAndMigratePostgres() {
     const tableCheck = await pgPool.query(`
       SELECT column_name 
       FROM information_schema.columns 
-      WHERE table_name = 'bookings' AND column_name = 'cancellation_deadline'
+      WHERE table_name = 'bookings' AND column_name = 'refund_status'
     `);
     if (tableCheck.rows.length === 0) {
       console.log("Migration: Dropping old tables to recreate with new cancellation policy schema in Postgres...");
@@ -479,13 +479,23 @@ export const query = async (text, params = []) => {
               id: doc.id,
               slot_id: data.slot_id,
               user_id: data.user_id,
+              created_at: data.created_at,
+              customer_name: data.customer_name,
+              customer_phone: data.customer_phone,
+              total_amount: data.total_amount,
+              advance_amount: data.advance_amount,
               advance_paid_amount: data.advance_paid_amount,
+              balance_amount: data.balance_amount,
               razorpay_payment_id: data.razorpay_payment_id,
               cancellation_deadline: data.cancellation_deadline,
+              cancelled_at: data.cancelled_at,
+              refund_amount: data.refund_amount,
+              refund_status: data.refund_status,
               booking_status: data.booking_status,
               date: data.slot?.date,
               start_time: data.slot?.start_time,
-              end_time: data.slot?.end_time
+              end_time: data.slot?.end_time,
+              price: data.slot?.price
             }]
           };
         }
