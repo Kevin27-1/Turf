@@ -819,6 +819,20 @@ export default function App() {
     }, 200);
   };
 
+  const todayStr = toLocalDateString(new Date());
+  const nowTime = new Date();
+  const currentHour = nowTime.getHours();
+  const currentMin = nowTime.getMinutes();
+
+  const activeSlots = slots.filter((slot) => {
+    if (slot.date === todayStr) {
+      const [slotHour, slotMin] = slot.start_time.split(':').map(Number);
+      if (slotHour < currentHour) return false;
+      if (slotHour === currentHour && slotMin <= currentMin) return false;
+    }
+    return true;
+  });
+
   const stats = getStats();
 
   return (
@@ -1095,9 +1109,9 @@ export default function App() {
               <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
                 Hourly Blocks
               </label>
-              {slots.length > 0 && (
+              {activeSlots.length > 0 && (
                 <span className="text-[10px] text-[#22c55e] font-bold uppercase tracking-widest">
-                  {slots.filter(s => s.status === 'available').length} Left
+                  {activeSlots.filter(s => s.status === 'available').length} Left
                 </span>
               )}
             </div>
@@ -1115,7 +1129,7 @@ export default function App() {
               </div>
             )}
 
-            {!loading && !error && slots.length === 0 && (
+            {!loading && !error && activeSlots.length === 0 && (
               <div className="border border-neutral-900 bg-neutral-955/40 p-6 rounded-none text-center mb-6 flex flex-col items-center">
                 <Calendar className="w-10 h-10 text-neutral-700 mb-2" />
                 <p className="text-xs font-bold text-white mb-1 uppercase tracking-wider">No Slots Available</p>
@@ -1147,24 +1161,30 @@ export default function App() {
               </div>
             )}
 
-            {!loading && !error && slots.length > 0 && (
+            {!loading && !error && activeSlots.length > 0 && (
               <div className="grid grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto pr-1 no-scrollbar pb-6">
-                {slots.map((slot) => {
-                  const isBooked = slot.status === 'booked';
+                {activeSlots.map((slot) => {
+                  const isBooked = slot.status === 'booked' || slot.status === 'blocked';
+                  const isHeldByOthers = slot.status === 'held' && slot.held_by_user_id !== user?.id;
+                  const isHeldByMe = slot.status === 'held' && slot.held_by_user_id === user?.id;
+                  const isDisabled = isBooked || isHeldByOthers;
+
                   return (
                     <button
                       id={slot.id}
                       key={slot.id}
                       onClick={() => handleOpenBooking(slot)}
-                      disabled={isBooked}
+                      disabled={isDisabled}
                       className={`p-3 border flex flex-col text-left transition relative rounded-none ${
-                        isBooked
+                        isDisabled
                           ? 'bg-neutral-950 border-neutral-900 text-neutral-600 cursor-not-allowed select-none'
-                          : 'bg-neutral-900/40 border-neutral-800 hover:border-[#22c55e] active:scale-[0.97] hover:bg-[#22c55e]/[0.02]'
+                          : isHeldByMe
+                            ? 'bg-neutral-900/60 border-[#22c55e] hover:border-[#22c55e] active:scale-[0.97]'
+                            : 'bg-neutral-900/40 border-neutral-800 hover:border-[#22c55e] active:scale-[0.97] hover:bg-[#22c55e]/[0.02]'
                       }`}
                     >
                       <span className={`text-[9px] font-bold px-2 py-0.5 self-start mb-3 border ${
-                        isBooked 
+                        isDisabled 
                           ? 'bg-neutral-950 border-neutral-900 text-neutral-700' 
                           : 'bg-neutral-900 border-[#22c55e]/20 text-[#22c55e]'
                       }`}>
@@ -1172,12 +1192,12 @@ export default function App() {
                       </span>
                       
                       <span className={`text-base font-black leading-none ${
-                        isBooked ? 'text-neutral-600' : 'text-white'
+                        isDisabled ? 'text-neutral-600' : 'text-white'
                       }`}>
                         {formatTime12h(slot.start_time)}
                       </span>
                       <span className={`text-[10px] font-bold mt-1 ${
-                        isBooked ? 'text-neutral-700' : 'text-neutral-400'
+                        isDisabled ? 'text-neutral-700' : 'text-neutral-400'
                       }`}>
                         to {formatTime12h(slot.end_time)}
                       </span>
@@ -1185,6 +1205,16 @@ export default function App() {
                       {isBooked && (
                         <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-neutral-600">
                           Booked
+                        </span>
+                      )}
+                      {isHeldByOthers && (
+                        <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-neutral-600">
+                          Held
+                        </span>
+                      )}
+                      {isHeldByMe && (
+                        <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-[#22c55e] animate-pulse">
+                          Your Hold
                         </span>
                       )}
                     </button>
