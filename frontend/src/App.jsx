@@ -241,7 +241,35 @@ export default function App() {
     }
   }, [currentTab]);
 
+  // Scroll-triggered reveal for home page sections
+  useEffect(() => {
+    if (currentTab !== 'home') return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            observer.unobserve(entry.target); // animate once, then stop watching
+          }
+        });
+      },
+      { threshold: 0.1, rootMargin: '0px 0px -40px 0px' }
+    );
+
+    // Small timeout lets React finish painting the home DOM before we query
+    const timer = setTimeout(() => {
+      document.querySelectorAll('.scroll-reveal').forEach(el => observer.observe(el));
+    }, 60);
+
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [currentTab]);
+
   // Reservation Hold Timer countdown
+
   useEffect(() => {
     if (!holdData || !holdData.heldUntil) return;
     
@@ -924,13 +952,13 @@ export default function App() {
             </div>
 
             <div className="relative z-10 text-center px-6 flex flex-col items-center">
-              <div className="animate-fade-in-up anim-delay-0 border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-3 py-0.5 text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 mb-3">
+              <div style={{transitionDelay:'0ms'}} className="scroll-reveal border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-3 py-0.5 text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 mb-3">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse"></span>
                 Open 24 Hours
               </div>
 
               {user && (
-                <div className="animate-fade-in-up anim-delay-1 text-[10px] font-bold text-[#22c55e] uppercase tracking-widest mb-2">
+                <div style={{transitionDelay:'80ms'}} className="scroll-reveal text-[10px] font-bold text-[#22c55e] uppercase tracking-widest mb-2">
                   Hi, {user.name}
                 </div>
               )}
@@ -941,22 +969,23 @@ export default function App() {
                 const lastName = nameParts.slice(1).join(' ') || 'Turf';
                 return (
                   <>
-                    <h1 className="animate-fade-in-up anim-delay-1 text-[2.25rem] font-black tracking-tighter uppercase text-white leading-none">
+                    <h1 style={{transitionDelay:'80ms'}} className="scroll-reveal text-[2.25rem] font-black tracking-tighter uppercase text-white leading-none">
                       {firstName}
                     </h1>
-                    <h1 className="animate-fade-in-up anim-delay-2 text-[3.5rem] font-black tracking-tighter uppercase text-[#22c55e] leading-none mt-0.5">
+                    <h1 style={{transitionDelay:'160ms'}} className="scroll-reveal text-[3.5rem] font-black tracking-tighter uppercase text-[#22c55e] leading-none mt-0.5">
                       {lastName}
                     </h1>
                   </>
                 );
               })()}
-              <p className="animate-fade-in-up anim-delay-3 text-neutral-300 text-[9px] font-bold uppercase tracking-widest mt-2 max-w-[280px]">
+              <p style={{transitionDelay:'260ms'}} className="scroll-reveal text-neutral-300 text-[9px] font-bold uppercase tracking-widest mt-2 max-w-[280px]">
                 {publicSettings.turf_name}'s Premier Turf Arena
               </p>
 
               <button
                 onClick={() => setCurrentTab('book')}
-                className="animate-fade-in-up anim-delay-4 mt-6 px-8 py-3.5 bg-[#22c55e] text-black font-extrabold text-[11px] uppercase tracking-widest rounded-none border border-black hover:bg-[#1db252] transition shadow-[3px_3px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0px_#000]"
+                style={{transitionDelay:'380ms'}}
+                className="scroll-reveal mt-6 px-8 py-3.5 bg-[#22c55e] text-black font-extrabold text-[11px] uppercase tracking-widest rounded-none border border-black hover:bg-[#1db252] transition shadow-[3px_3px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0px_#000]"
               >
                 Book Court Now &rarr;
               </button>
@@ -964,7 +993,7 @@ export default function App() {
           </section>
 
           {/* B. LIVE AVAILABILITY TEASER */}
-          <section className="animate-fade-in-up anim-delay-4 w-full px-6 py-2 bg-neutral-950 border-y border-neutral-900">
+          <section className="scroll-reveal w-full px-6 py-2 bg-neutral-950 border-y border-neutral-900">
             <button
               onClick={handleLiveTeaserClick}
               className="w-full flex items-center justify-between py-2 text-left text-xs font-bold hover:opacity-80 transition group"
@@ -980,7 +1009,7 @@ export default function App() {
           </section>
 
           {/* C. WHY BOOK HERE */}
-          <section className="animate-fade-in-up anim-delay-5 w-full px-6 py-8">
+          <section className="scroll-reveal w-full px-6 py-8">
             <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-5">
               WHY PLAY WITH US?
             </h3>
@@ -1021,7 +1050,7 @@ export default function App() {
           </section>
 
           {/* D. PHOTO GALLERY SECTION */}
-          <section className="animate-fade-in-up anim-delay-6 w-full py-8 border-t border-neutral-900">
+          <section className="scroll-reveal w-full py-8 border-t border-neutral-900">
             <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4 px-6">
               COURT GALLERY
             </h3>
@@ -1048,7 +1077,7 @@ export default function App() {
           </section>
 
           {/* E. PRICING & TIMING CARD */}
-          <section className="animate-fade-in-up anim-delay-6 w-full px-6 py-6 border-t border-neutral-900 bg-neutral-950/30">
+          <section className="scroll-reveal w-full px-6 py-6 border-t border-neutral-900 bg-neutral-950/30">
             <div className="border border-neutral-900 bg-neutral-950 p-4">
               <h4 className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-2.5">
                 GLANCE RATE & INFO
@@ -1071,7 +1100,7 @@ export default function App() {
           </section>
 
           {/* F. LOCATION & MAP */}
-          <section className="animate-fade-in-up anim-delay-7 w-full px-6 py-8 border-t border-neutral-900">
+          <section className="scroll-reveal w-full px-6 py-8 border-t border-neutral-900">
             <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4">
               COURT LOCATION
             </h3>
