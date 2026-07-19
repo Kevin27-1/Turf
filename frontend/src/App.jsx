@@ -185,7 +185,6 @@ export default function App() {
     { src: '/turf_real_day.jpg', caption: 'Golden Arm Turf Pitch View (Day)' },
     { src: '/turf_real_night.jpg', caption: 'Playing at Night Under Lights' },
     { src: '/turf_grass.jpg', caption: 'FIFA-certified Surface Close-up' },
-    { src: '/turf_amenities.jpg', caption: 'Clean Changing Rooms & Lockers' },
     { src: '/turf_real_map.png', caption: 'Golden Arm Turf Map Location' }
   ];
 
