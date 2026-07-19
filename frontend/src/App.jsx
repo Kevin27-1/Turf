@@ -143,6 +143,7 @@ export default function App() {
   // Cancellation State
   const [cancelingId, setCancelingId] = useState(null);
   const [cancelError, setCancelError] = useState('');
+  const [activeCancellation, setActiveCancellation] = useState(null);
 
   // INTERACTIVE HOME STATES
   const [liveTeaserText, setLiveTeaserText] = useState('Checking today\'s schedule...');
@@ -323,17 +324,7 @@ export default function App() {
     }
   };
 
-  const handleCancelBooking = async (bookingId, isPastDeadline, advanceAmount, e) => {
-    if (e) e.stopPropagation(); // Prevent opening receipt modal
-
-    const confirmMsg = isPastDeadline
-      ? "Cancellation window has passed. No refund will be issued. Cancel anyway?"
-      : `You'll receive a full refund of ₹${advanceAmount}. Confirm cancellation?`;
-
-    if (!window.confirm(confirmMsg)) {
-      return;
-    }
-
+  const handleCancelBooking = async (bookingId) => {
     setCancelingId(bookingId);
     setCancelError('');
     try {
@@ -351,6 +342,7 @@ export default function App() {
       }
 
       alert(data.message);
+      setActiveCancellation(null);
 
       // Re-fetch bookings history and slots list
       await fetchBookings();
@@ -359,7 +351,7 @@ export default function App() {
       }
     } catch (err) {
       console.error('Error cancelling booking:', err);
-      alert(err.message);
+      setCancelError(err.message || 'Failed to cancel booking.');
     } finally {
       setCancelingId(null);
     }
@@ -1484,14 +1476,14 @@ export default function App() {
                             </div>
                             <button
                               disabled={cancelingId === b.id}
-                              onClick={(e) => handleCancelBooking(b.id, isPastDeadline, b.advance_paid_amount, e)}
+                              onClick={(e) => { e.stopPropagation(); setActiveCancellation(b); }}
                               className={`w-full py-2.5 font-extrabold text-[9px] uppercase tracking-wider transition ${
                                 cancelingId === b.id
                                   ? 'bg-neutral-800 text-neutral-500 cursor-wait'
                                   : 'border border-red-500/30 text-red-500 hover:bg-red-500/5 hover:border-red-500'
                               }`}
                             >
-                              {cancelingId === b.id ? 'Cancelling...' : 'Cancel Booking'}
+                              Cancel Booking
                             </button>
                           </div>
                         )}
@@ -2461,6 +2453,93 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* CANCELLATION CONFIRMATION MODAL (BOTTOM DRAWER) */}
+      {activeCancellation && (() => {
+        const b = activeCancellation;
+        const [year, month, day] = b.slot.date.split('-').map(Number);
+        const [hour, minute] = b.slot.start_time.split(':').map(Number);
+        const slotStartTime = new Date(year, month - 1, day, hour, minute, 0, 0);
+        const isPastDeadline = b.cancellation_deadline ? new Date(b.cancellation_deadline) <= new Date() : true;
+
+        return (
+          <div className="fixed inset-0 bg-black/85 backdrop-blur-xs z-50 flex items-end justify-center p-4">
+            <div className="absolute inset-0" onClick={() => setActiveCancellation(null)}></div>
+
+            <div className="w-full max-w-sm bg-neutral-950 border border-neutral-800 rounded-none relative z-10 p-5 transform translate-y-0 transition duration-300 animate-in slide-in-from-bottom duration-300">
+              
+              <div className="mb-4 pb-3 border-b border-neutral-900">
+                <span className="text-[9px] font-bold text-red-500 uppercase tracking-widest flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" /> Cancel Booking
+                </span>
+                <h3 className="text-lg font-black text-white mt-1 uppercase">
+                  {formatTime12h(b.slot.start_time)} to {formatTime12h(b.slot.end_time)}
+                </h3>
+                <p className="text-[10px] text-neutral-400 mt-1 uppercase font-semibold">
+                  Date: {formatDateDisplayShort(b.slot.date)}
+                </p>
+              </div>
+
+              {cancelError && (
+                <div className="p-3 mb-4 border border-red-955 bg-red-955/20 text-xs text-red-500 font-bold">
+                  {cancelError}
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {/* Cancellation Policy Banner */}
+                <div className={`p-4 border text-[11px] font-bold uppercase tracking-wider leading-relaxed ${
+                  !isPastDeadline 
+                    ? 'border-[#22c55e]/30 bg-[#22c55e]/5 text-[#22c55e]' 
+                    : 'border-amber-500/30 bg-amber-500/5 text-amber-500'
+                }`}>
+                  {!isPastDeadline ? (
+                    <div>
+                      <p className="font-extrabold mb-1">Eligible for Full Refund</p>
+                      <p className="text-[9px] text-neutral-400 normal-case font-medium">
+                        You are cancelling before the 4-hour window. A full refund of ₹{b.advance_paid_amount} will be processed back to your original payment method.
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="font-extrabold mb-1 text-red-500">Non-Refundable Cancellation</p>
+                      <p className="text-[9px] text-neutral-400 normal-case font-medium">
+                        Cancellations within 4 hours of slot start are not eligible for a refund. No refund will be issued, and the slot will remain blocked.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    disabled={cancelingId === b.id}
+                    onClick={() => { setActiveCancellation(null); setCancelError(''); }}
+                    className="flex-1 py-3 border border-neutral-900 text-neutral-500 hover:text-white font-bold text-xs uppercase tracking-wider rounded-none transition"
+                  >
+                    Go Back
+                  </button>
+                  <button
+                    type="button"
+                    disabled={cancelingId === b.id}
+                    onClick={() => handleCancelBooking(b.id)}
+                    className="flex-2 py-3 bg-red-600 hover:bg-red-750 disabled:opacity-50 text-white font-extrabold text-xs uppercase tracking-wider rounded-none shadow-[2px_2px_0px_#000] transition flex items-center justify-center gap-1.5"
+                  >
+                    {cancelingId === b.id ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cancelling...
+                      </>
+                    ) : (
+                      'Confirm Cancel'
+                    )}
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
