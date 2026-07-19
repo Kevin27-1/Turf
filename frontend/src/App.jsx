@@ -917,7 +917,18 @@ export default function App() {
   const stats = getStats();
 
   return (
-    <div className="relative min-h-screen flex flex-col items-center bg-[#070707] text-white p-0 pb-24 w-full max-w-md mx-auto border-x border-neutral-900 shadow-2xl">
+    <div className="min-h-screen w-full bg-[#030303] md:flex md:items-start md:justify-center md:pt-8 md:pb-8">
+      {/* Desktop background decoration */}
+      <div className="hidden md:block fixed inset-0 pointer-events-none" style={{
+        backgroundImage: 'radial-gradient(circle at 20% 50%, rgba(34,197,94,0.03) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(34,197,94,0.02) 0%, transparent 40%)',
+        backgroundSize: '100% 100%'
+      }} />
+      <div className="hidden md:block fixed inset-0 pointer-events-none opacity-20" style={{
+        backgroundImage: 'linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)',
+        backgroundSize: '40px 40px'
+      }} />
+
+    <div className="relative min-h-screen md:min-h-0 md:h-[calc(100vh-64px)] flex flex-col items-center bg-[#070707] text-white p-0 pb-24 w-full max-w-md mx-auto border-x border-neutral-900 shadow-[0_0_80px_rgba(0,0,0,0.8)] md:overflow-y-auto md:rounded-none">
       
       {/* HEADER SECTION (EXCEPT ON HOME SCREEN) */}
       {currentTab !== 'home' && !profileSub && (
@@ -2636,6 +2647,7 @@ export default function App() {
           </div>
         );
       })()}
+    </div>
     </div>
   );
 }
