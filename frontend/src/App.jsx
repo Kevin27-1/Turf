@@ -1817,6 +1817,16 @@ export default function App() {
                   </button>
                 </form>
               )}
+
+              <div className="pt-4 border-t border-neutral-900/60 flex justify-center">
+                <button 
+                  onClick={() => window.open('/admin', '_blank')}
+                  className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 hover:text-[#22c55e] transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  Access Admin Desk
+                </button>
+              </div>
             </div>
           ) : profileSub === null ? (
             <div className="space-y-6">
