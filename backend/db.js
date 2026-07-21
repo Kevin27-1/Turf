@@ -143,6 +143,17 @@ async function checkAndMigratePostgres() {
       await pgPool.query("DROP TABLE IF EXISTS slots CASCADE");
       await pgPool.query("DROP TABLE IF EXISTS admin_settings CASCADE");
     }
+
+    // Migration check for device_type column in Postgres
+    const deviceTypeCheck = await pgPool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'bookings' AND column_name = 'device_type'
+    `);
+    if (deviceTypeCheck.rows.length === 0) {
+      console.log("Migration: Adding device_type column to bookings table in Postgres...");
+      await pgPool.query("ALTER TABLE bookings ADD COLUMN device_type TEXT DEFAULT 'mobile'");
+    }
   } catch (err) {
     console.warn("Postgres migration check failed, skipping drops:", err.message);
   }
@@ -212,6 +223,7 @@ function initializeSqliteTables() {
       console.error('Error initializing SQLite tables:', err.message);
     } else {
       console.log('SQLite tables initialized successfully.');
+      sqliteDb.run("ALTER TABLE bookings ADD COLUMN device_type TEXT DEFAULT 'mobile'", () => {});
       sqliteDb.run(`
         INSERT OR IGNORE INTO admin_settings (
           id, turf_name, operating_hours_start, operating_hours_end, 
