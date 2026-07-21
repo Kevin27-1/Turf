@@ -820,13 +820,30 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
     sunday.setDate(monday.getDate() + 6);
     sunday.setHours(23, 59, 59, 999);
 
-    // Calculate month boundaries
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0);
-    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+    // Calculate month boundaries for current and previous month
+    const startOfCurrentMonth = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0);
+    const endOfCurrentMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1, 0, 0, 0, 0);
+    const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999);
 
     let bookingsThisWeek = 0;
     let revenueThisWeek = 0;
     let bookingsThisMonth = 0;
+    let revenueThisMonth = 0;
+    let revenueLastMonth = 0;
+
+    // Daily breakdown for the last 30 days
+    const dailyEarningsMap = {};
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dayStr = String(d.getDate()).padStart(2, '0');
+      const dateKey = `${y}-${m}-${dayStr}`;
+      dailyEarningsMap[dateKey] = 0;
+    }
 
     bookings.forEach(b => {
       if (!b.date) return;
@@ -834,26 +851,55 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
       const slotDate = new Date(year, month - 1, day, 12, 0, 0, 0); // midday comparison
 
       const isConfirmedOrCompleted = b.booking_status === 'confirmed' || b.booking_status === 'completed';
+      if (!isConfirmedOrCompleted) return;
+
+      const balancePaid = b.balance_payment_status === 'paid_at_venue' ? (b.balance_amount || 0) : 0;
+      const totalSlotRevenue = (b.advance_paid_amount || 0) + balancePaid;
 
       if (slotDate >= monday && slotDate <= sunday) {
-        if (isConfirmedOrCompleted) {
-          bookingsThisWeek++;
-          const balancePaid = b.balance_payment_status === 'paid_at_venue' ? b.balance_amount : 0;
-          revenueThisWeek += (b.advance_paid_amount || 0) + balancePaid;
-        }
+        bookingsThisWeek++;
+        revenueThisWeek += totalSlotRevenue;
       }
 
-      if (slotDate >= startOfMonth && slotDate <= endOfMonth) {
-        if (isConfirmedOrCompleted) {
-          bookingsThisMonth++;
-        }
+      if (slotDate >= startOfCurrentMonth && slotDate <= endOfCurrentMonth) {
+        bookingsThisMonth++;
+        revenueThisMonth += totalSlotRevenue;
+      }
+
+      if (slotDate >= startOfLastMonth && slotDate <= endOfLastMonth) {
+        revenueLastMonth += totalSlotRevenue;
+      }
+
+      if (dailyEarningsMap[b.date] !== undefined) {
+        dailyEarningsMap[b.date] += totalSlotRevenue;
       }
     });
+
+    const monthlyDailyEarnings = Object.keys(dailyEarningsMap).map(dateStr => {
+      const d = new Date(dateStr);
+      return {
+        date: dateStr,
+        label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        amount: dailyEarningsMap[dateStr]
+      };
+    });
+
+    // Month over month percentage growth comparison
+    let monthOverMonthChangePct = 0;
+    if (revenueLastMonth > 0) {
+      monthOverMonthChangePct = Math.round(((revenueThisMonth - revenueLastMonth) / revenueLastMonth) * 100);
+    } else if (revenueThisMonth > 0) {
+      monthOverMonthChangePct = 100;
+    }
 
     res.json({
       bookingsThisWeek,
       revenueThisWeek,
-      bookingsThisMonth
+      bookingsThisMonth,
+      revenueThisMonth,
+      revenueLastMonth,
+      monthOverMonthChangePct,
+      monthlyDailyEarnings
     });
   } catch (err) {
     console.error('Failed to get stats:', err);

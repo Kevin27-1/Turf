@@ -3490,27 +3490,94 @@ function AdminApp() {
               <div className="space-y-6">
                 <div className="border-b border-neutral-900 pb-5">
                   <h2 className="text-xl font-black uppercase text-white tracking-tight">Stats & Analytics</h2>
-                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-1 font-bold">Key performance indicators</p>
+                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-1 font-bold">Key performance indicators & revenue trend</p>
                 </div>
 
                 {stats ? (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="border border-neutral-900 bg-neutral-950 p-6">
-                      <span className="text-[9px] uppercase font-bold text-neutral-500 tracking-wider">Bookings This Week</span>
-                      <span className="block text-4xl font-black text-white mt-2">{stats.bookingsThisWeek}</span>
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="border border-neutral-900 bg-neutral-950 p-6">
+                        <span className="text-[9px] uppercase font-bold text-neutral-500 tracking-wider">Revenue This Month</span>
+                        <div className="flex items-baseline gap-3 mt-2">
+                          <span className="text-4xl font-black text-[#22c55e]">₹{stats.revenueThisMonth ?? 0}</span>
+                          {stats.monthOverMonthChangePct !== undefined && (
+                            <span className={`text-xs font-extrabold px-2 py-0.5 border ${stats.monthOverMonthChangePct >= 0 ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800' : 'bg-red-950/40 text-red-400 border-red-800'}`}>
+                              {stats.monthOverMonthChangePct >= 0 ? `+${stats.monthOverMonthChangePct}%` : `${stats.monthOverMonthChangePct}%`} vs last mo
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[8px] text-neutral-600 block mt-2 uppercase font-bold">
+                          Last Month: ₹{stats.revenueLastMonth ?? 0}
+                        </span>
+                      </div>
+
+                      <div className="border border-neutral-900 bg-neutral-950 p-6">
+                        <span className="text-[9px] uppercase font-bold text-neutral-500 tracking-wider">Revenue This Week</span>
+                        <span className="block text-4xl font-black text-white mt-2">₹{stats.revenueThisWeek}</span>
+                        <span className="text-[8px] text-neutral-600 block mt-2 uppercase font-bold">(Advance + Cash collected)</span>
+                      </div>
+
+                      <div className="border border-neutral-900 bg-neutral-950 p-6">
+                        <span className="text-[9px] uppercase font-bold text-neutral-500 tracking-wider">Bookings This Month</span>
+                        <span className="block text-4xl font-black text-white mt-2">{stats.bookingsThisMonth}</span>
+                        <span className="text-[8px] text-neutral-600 block mt-2 uppercase font-bold">Confirmed / Completed slots</span>
+                      </div>
                     </div>
 
-                    <div className="border border-neutral-900 bg-neutral-950 p-6">
-                      <span className="text-[9px] uppercase font-bold text-neutral-500 tracking-wider">Revenue Collected This Week</span>
-                      <span className="block text-4xl font-black text-[#22c55e] mt-2">₹{stats.revenueThisWeek}</span>
-                      <span className="text-[8px] text-neutral-600 block mt-1 uppercase font-bold">(Advance paid + Venue balance collected)</span>
-                    </div>
+                    {/* Monthly Revenue vs Time Graph */}
+                    <div className="border border-neutral-900 bg-neutral-950 p-6 space-y-4">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-neutral-900 pb-4">
+                        <div>
+                          <h3 className="text-sm font-black uppercase text-white tracking-wider">Money Earned vs Time (Last 30 Days)</h3>
+                          <p className="text-[9px] text-neutral-500 uppercase tracking-widest mt-0.5 font-bold">Daily revenue breakdown across the past month</p>
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] uppercase font-bold">
+                          <span className="flex items-center gap-1.5 text-neutral-400">
+                            <span className="w-2.5 h-2.5 bg-[#22c55e] inline-block"></span> Daily Earnings
+                          </span>
+                        </div>
+                      </div>
 
-                    <div className="border border-neutral-900 bg-neutral-950 p-6">
-                      <span className="text-[9px] uppercase font-bold text-neutral-500 tracking-wider">Bookings This Month</span>
-                      <span className="block text-4xl font-black text-white mt-2">{stats.bookingsThisMonth}</span>
+                      {stats.monthlyDailyEarnings && stats.monthlyDailyEarnings.length > 0 ? (
+                        (() => {
+                          const maxAmount = Math.max(...stats.monthlyDailyEarnings.map(d => d.amount), 1);
+                          return (
+                            <div className="pt-4">
+                              {/* Graph Bars Container */}
+                              <div className="h-48 flex items-end justify-between gap-1 sm:gap-1.5 border-b border-neutral-800 pb-2 overflow-x-auto">
+                                {stats.monthlyDailyEarnings.map((item, idx) => {
+                                  const heightPct = maxAmount > 0 ? Math.max((item.amount / maxAmount) * 100, 4) : 4;
+                                  return (
+                                    <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[14px]">
+                                      {/* Tooltip */}
+                                      <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-8 bg-neutral-900 border border-neutral-700 text-white text-[9px] font-mono font-bold px-1.5 py-0.5 z-20 whitespace-nowrap pointer-events-none">
+                                        {item.label}: ₹{item.amount}
+                                      </div>
+
+                                      {/* Bar */}
+                                      <div 
+                                        style={{ height: `${heightPct}%` }}
+                                        className={`w-full transition-all duration-300 ${item.amount > 0 ? 'bg-[#22c55e] hover:bg-[#1db252] shadow-[0_0_8px_rgba(34,197,94,0.3)]' : 'bg-neutral-900/60'}`}
+                                      ></div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              {/* Graph X-Axis Date Labels */}
+                              <div className="flex justify-between items-center text-[8px] font-mono font-bold text-neutral-500 mt-2 px-1">
+                                <span>{stats.monthlyDailyEarnings[0]?.label}</span>
+                                <span>{stats.monthlyDailyEarnings[14]?.label}</span>
+                                <span>{stats.monthlyDailyEarnings[stats.monthlyDailyEarnings.length - 1]?.label}</span>
+                              </div>
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <div className="text-center py-10 text-neutral-600 text-xs uppercase font-bold">No revenue data available for the past month</div>
+                      )}
                     </div>
-                  </div>
+                  </>
                 ) : (
                   <div className="text-center p-8 text-neutral-500 text-xs">No stats data found.</div>
                 )}
