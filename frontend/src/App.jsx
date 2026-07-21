@@ -2300,29 +2300,33 @@ export default function App() {
           <Dock 
             items={[
               { 
-                icon: <Clock className="w-5 h-5 text-neutral-300" />, 
+                icon: <Clock className={`w-5 h-5 ${currentTab === 'home' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
                 label: 'Home', 
+                className: currentTab === 'home' ? 'active-tab' : '',
                 onClick: () => { setCurrentTab('home'); setProfileSub(null); setConfirmedBooking(null); } 
               },
               { 
-                icon: <Calendar className="w-5 h-5 text-neutral-300" />, 
+                icon: <Calendar className={`w-5 h-5 ${currentTab === 'book' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
                 label: 'Book', 
+                className: currentTab === 'book' ? 'active-tab' : '',
                 onClick: () => { setCurrentTab('book'); setProfileSub(null); setConfirmedBooking(null); } 
               },
               { 
-                icon: <History className="w-5 h-5 text-neutral-300" />, 
+                icon: <History className={`w-5 h-5 ${currentTab === 'passes' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
                 label: 'Passes', 
+                className: currentTab === 'passes' ? 'active-tab' : '',
                 onClick: () => { setCurrentTab('passes'); setProfileSub(null); } 
               },
               { 
-                icon: <User className="w-5 h-5 text-neutral-300" />, 
+                icon: <User className={`w-5 h-5 ${currentTab === 'profile' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
                 label: 'Profile', 
+                className: currentTab === 'profile' ? 'active-tab' : '',
                 onClick: () => { setCurrentTab('profile'); setProfileSub(null); setConfirmedBooking(null); } 
               },
             ]}
-            panelHeight={68}
-            baseItemSize={50}
-            magnification={70}
+            panelHeight={64}
+            baseItemSize={46}
+            magnification={64}
           />
         </div>
       </div>
