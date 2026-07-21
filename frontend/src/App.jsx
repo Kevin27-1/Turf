@@ -283,16 +283,8 @@ export default function App() {
       setHoldTimeLeft(diff);
       
       if (diff <= 0) {
-        // Automatically close the booking slot modal and release hold state when timer hits 0
-        setSelectedSlot(null);
-        setHoldData(null);
-        setBookingError('');
-        setError('Reservation hold expired! The slot has been released.');
-        
-        // Refresh slots silently without triggering full-screen loading flash
-        if (selectedDate) {
-          fetchSlots(selectedDate, true);
-        }
+        // Automatically close this window when timer hits 0
+        handleCloseBooking();
       }
     };
     
@@ -526,7 +518,7 @@ export default function App() {
     if (!holdData) return;
 
     if (holdTimeLeft <= 0) {
-      setBookingError('Your reservation hold has expired. Please close this modal and try again.');
+      handleCloseBooking();
       return;
     }
 
