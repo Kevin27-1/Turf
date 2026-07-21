@@ -50,6 +50,8 @@ async function initializeFirestoreSettings() {
         operating_hours_end: '23:00',
         slot_duration_minutes: 60,
         price_per_slot: 1200,
+        price_per_slot_day: 1200,
+        price_per_slot_night: 1500,
         advance_payment_percentage: 40,
         cancellation_window_hours: 4,
         sport_types_offered: 'Football, Cricket'
@@ -154,6 +156,18 @@ async function checkAndMigratePostgres() {
       console.log("Migration: Adding device_type column to bookings table in Postgres...");
       await pgPool.query("ALTER TABLE bookings ADD COLUMN device_type TEXT DEFAULT 'mobile'");
     }
+
+    // Migration check for price_per_slot_day / night in Postgres admin_settings
+    const dayPriceCheck = await pgPool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'admin_settings' AND column_name = 'price_per_slot_day'
+    `);
+    if (dayPriceCheck.rows.length === 0) {
+      console.log("Migration: Adding price_per_slot_day and price_per_slot_night to admin_settings in Postgres...");
+      await pgPool.query("ALTER TABLE admin_settings ADD COLUMN price_per_slot_day REAL DEFAULT 1200");
+      await pgPool.query("ALTER TABLE admin_settings ADD COLUMN price_per_slot_night REAL DEFAULT 1500");
+    }
   } catch (err) {
     console.warn("Postgres migration check failed, skipping drops:", err.message);
   }
@@ -211,7 +225,9 @@ function initializeSqliteTables() {
       operating_hours_start TEXT NOT NULL,
       operating_hours_end TEXT NOT NULL,
       slot_duration_minutes INTEGER NOT NULL,
-      price_per_slot REAL NOT NULL,
+      price_per_slot REAL NOT NULL DEFAULT 1200,
+      price_per_slot_day REAL NOT NULL DEFAULT 1200,
+      price_per_slot_night REAL NOT NULL DEFAULT 1500,
       advance_payment_percentage INTEGER NOT NULL,
       cancellation_window_hours INTEGER NOT NULL,
       sport_types_offered TEXT NOT NULL
@@ -224,12 +240,14 @@ function initializeSqliteTables() {
     } else {
       console.log('SQLite tables initialized successfully.');
       sqliteDb.run("ALTER TABLE bookings ADD COLUMN device_type TEXT DEFAULT 'mobile'", () => {});
+      sqliteDb.run("ALTER TABLE admin_settings ADD COLUMN price_per_slot_day REAL DEFAULT 1200", () => {});
+      sqliteDb.run("ALTER TABLE admin_settings ADD COLUMN price_per_slot_night REAL DEFAULT 1500", () => {});
       sqliteDb.run(`
         INSERT OR IGNORE INTO admin_settings (
           id, turf_name, operating_hours_start, operating_hours_end, 
-          slot_duration_minutes, price_per_slot, advance_payment_percentage, 
-          cancellation_window_hours, sport_types_offered
-        ) VALUES (1, 'Golden Arm Turf', '06:00', '23:00', 60, 1200, 40, 4, 'Football, Cricket')
+          slot_duration_minutes, price_per_slot, price_per_slot_day, price_per_slot_night,
+          advance_payment_percentage, cancellation_window_hours, sport_types_offered
+        ) VALUES (1, 'Golden Arm Turf', '06:00', '23:00', 60, 1200, 1200, 1500, 40, 4, 'Football, Cricket')
       `, (seedErr) => {
         if (seedErr) console.error('Failed to seed SQLite default settings:', seedErr.message);
       });
@@ -288,7 +306,9 @@ async function initializePostgresTables() {
       operating_hours_start TEXT NOT NULL,
       operating_hours_end TEXT NOT NULL,
       slot_duration_minutes INTEGER NOT NULL,
-      price_per_slot REAL NOT NULL,
+      price_per_slot REAL NOT NULL DEFAULT 1200,
+      price_per_slot_day REAL NOT NULL DEFAULT 1200,
+      price_per_slot_night REAL NOT NULL DEFAULT 1500,
       advance_payment_percentage INTEGER NOT NULL,
       cancellation_window_hours INTEGER NOT NULL,
       sport_types_offered TEXT NOT NULL
@@ -301,9 +321,9 @@ async function initializePostgresTables() {
     await pgPool.query(`
       INSERT INTO admin_settings (
         id, turf_name, operating_hours_start, operating_hours_end, 
-        slot_duration_minutes, price_per_slot, advance_payment_percentage, 
-        cancellation_window_hours, sport_types_offered
-      ) VALUES (1, 'Golden Arm Turf', '06:00', '23:00', 60, 1200, 40, 4, 'Football, Cricket')
+        slot_duration_minutes, price_per_slot, price_per_slot_day, price_per_slot_night,
+        advance_payment_percentage, cancellation_window_hours, sport_types_offered
+      ) VALUES (1, 'Golden Arm Turf', '06:00', '23:00', 60, 1200, 1200, 1500, 40, 4, 'Football, Cricket')
       ON CONFLICT (id) DO NOTHING
     `);
   } catch (err) {
@@ -455,6 +475,30 @@ export const query = async (text, params = []) => {
             }
           });
           return { rows: [], rowCount };
+        } else if (trimmedText.startsWith('UPDATE slots SET price =') || trimmedText.startsWith('UPDATE slots SET price=')) {
+          const isDayUpdate = trimmedText.includes("start_time >= '06:00'") && trimmedText.includes("start_time < '19:00'");
+          const snap = await firestoreDb.collection('slots').where('status', '==', 'available').get();
+          const batch = firestoreDb.batch();
+          let count = 0;
+          snap.docs.forEach(doc => {
+            const data = doc.data();
+            const st = data.start_time;
+            if (isDayUpdate) {
+              if (st >= '06:00' && st < '19:00') {
+                batch.update(doc.ref, { price: params[0] });
+                count++;
+              }
+            } else {
+              if (st >= '19:00' || st < '06:00') {
+                batch.update(doc.ref, { price: params[0] });
+                count++;
+              }
+            }
+          });
+          if (count > 0) {
+            await batch.commit();
+          }
+          return { rows: [] };
         } else {
           // Normal status update: UPDATE slots SET status = $1 WHERE id = $2
           await firestoreDb.collection('slots').doc(params[1]).update({ status: params[0] });
@@ -628,10 +672,12 @@ export const query = async (text, params = []) => {
           operating_hours_start: params[1],
           operating_hours_end: params[2],
           slot_duration_minutes: params[3],
-          price_per_slot: params[4],
-          advance_payment_percentage: params[5],
-          cancellation_window_hours: params[6],
-          sport_types_offered: params[7]
+          price_per_slot_day: params[4],
+          price_per_slot_night: params[5],
+          advance_payment_percentage: params[6],
+          cancellation_window_hours: params[7],
+          sport_types_offered: params[8],
+          price_per_slot: params[4]
         });
         return { rows: [] };
       }

@@ -24,7 +24,12 @@ async function getAdminSettings() {
   try {
     const res = await query('SELECT * FROM admin_settings LIMIT 1');
     if (res.rows && res.rows.length > 0) {
-      return res.rows[0];
+      const row = res.rows[0];
+      return {
+        ...row,
+        price_per_slot_day: row.price_per_slot_day ?? row.price_per_slot ?? 1200,
+        price_per_slot_night: row.price_per_slot_night ?? row.price_per_slot ?? 1500
+      };
     }
   } catch (err) {
     console.error('Failed to load admin settings from DB, using fallback defaults:', err.message);
@@ -35,6 +40,8 @@ async function getAdminSettings() {
     operating_hours_end: '23:00',
     slot_duration_minutes: 60,
     price_per_slot: 1200,
+    price_per_slot_day: 1200,
+    price_per_slot_night: 1500,
     advance_payment_percentage: 40,
     cancellation_window_hours: 4,
     sport_types_offered: 'Football, Cricket'
@@ -615,30 +622,41 @@ app.put('/api/admin/settings', authenticateAdmin, async (req, res) => {
     operating_hours_start,
     operating_hours_end,
     slot_duration_minutes,
-    price_per_slot,
+    price_per_slot_day,
+    price_per_slot_night,
     advance_payment_percentage,
     cancellation_window_hours,
     sport_types_offered
   } = req.body;
 
+  const priceDayNum = parseFloat(price_per_slot_day);
+  const priceNightNum = parseFloat(price_per_slot_night);
+
   try {
     await query(
       `UPDATE admin_settings 
        SET turf_name = $1, operating_hours_start = $2, operating_hours_end = $3, 
-           slot_duration_minutes = $4, price_per_slot = $5, advance_payment_percentage = $6, 
-           cancellation_window_hours = $7, sport_types_offered = $8 
+           slot_duration_minutes = $4, price_per_slot_day = $5, price_per_slot_night = $6, 
+           advance_payment_percentage = $7, cancellation_window_hours = $8, sport_types_offered = $9,
+           price_per_slot = $5 
        WHERE id = 1`,
       [
         turf_name,
         operating_hours_start,
         operating_hours_end,
         parseInt(slot_duration_minutes, 10),
-        parseFloat(price_per_slot),
+        priceDayNum,
+        priceNightNum,
         parseInt(advance_payment_percentage, 10),
         parseInt(cancellation_window_hours || 4, 10),
         sport_types_offered
       ]
     );
+
+    // Update prices for existing available slots
+    await query("UPDATE slots SET price = $1 WHERE status = 'available' AND start_time >= '06:00' AND start_time < '19:00'", [priceDayNum]);
+    await query("UPDATE slots SET price = $1 WHERE status = 'available' AND (start_time >= '19:00' OR start_time < '06:00')", [priceNightNum]);
+
     res.json({ success: true, message: 'Admin settings updated successfully' });
   } catch (err) {
     console.error('Failed to update settings:', err);

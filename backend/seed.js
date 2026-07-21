@@ -26,7 +26,8 @@ export async function seedSlots() {
   const startTotalMinutes = startHour * 60 + startMin;
   const endTotalMinutes = endHour * 60 + endMin;
   const duration = settings.slot_duration_minutes || 60;
-  const price = settings.price_per_slot || 1200;
+  const priceDay = settings.price_per_slot_day ?? settings.price_per_slot ?? 1200;
+  const priceNight = settings.price_per_slot_night ?? settings.price_per_slot ?? 1500;
 
   for (let i = 0; i < 7; i++) {
     const d = new Date();
@@ -59,11 +60,12 @@ export async function seedSlots() {
       const start_time = `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
       const end_time = `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`;
       
+      const slotPrice = (start_time >= '06:00' && start_time < '19:00') ? priceDay : priceNight;
       const slotId = crypto.randomUUID();
       
       await query(
         'INSERT INTO slots (id, date, start_time, end_time, status, price) VALUES ($1, $2, $3, $4, $5, $6)',
-        [slotId, dateStr, start_time, end_time, 'available', price]
+        [slotId, dateStr, start_time, end_time, 'available', slotPrice]
       );
       seededCount++;
     }

@@ -2561,8 +2561,8 @@ function AdminApp() {
   const [turfName, setTurfName] = useState('');
   const [hoursStart, setHoursStart] = useState('');
   const [hoursEnd, setHoursEnd] = useState('');
-  const [duration, setDuration] = useState(60);
-  const [price, setPrice] = useState(1200);
+  const [priceDay, setPriceDay] = useState(1200);
+  const [priceNight, setPriceNight] = useState(1500);
   const [advancePct, setAdvancePct] = useState(40);
   const [sports, setSports] = useState('');
   const [settingsSuccess, setSettingsSuccess] = useState('');
@@ -2653,7 +2653,8 @@ function AdminApp() {
       setHoursStart(data.operating_hours_start);
       setHoursEnd(data.operating_hours_end);
       setDuration(data.slot_duration_minutes);
-      setPrice(data.price_per_slot);
+      setPriceDay(data.price_per_slot_day ?? data.price_per_slot ?? 1200);
+      setPriceNight(data.price_per_slot_night ?? data.price_per_slot ?? 1500);
       setAdvancePct(data.advance_payment_percentage);
       setSports(data.sport_types_offered);
       setSettingsSuccess('');
@@ -2870,7 +2871,8 @@ function AdminApp() {
           operating_hours_start: hoursStart,
           operating_hours_end: hoursEnd,
           slot_duration_minutes: duration,
-          price_per_slot: price,
+          price_per_slot_day: priceDay,
+          price_per_slot_night: priceNight,
           advance_payment_percentage: advancePct,
           sport_types_offered: sports
         })
@@ -3492,13 +3494,25 @@ function AdminApp() {
                     </div>
 
                     <div>
-                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Price Per Slot (₹)</label>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Price Per Slot (6 AM - 7 PM) (₹)</label>
                       <input
                         type="number"
                         required
                         min={0}
-                        value={price}
-                        onChange={(e) => setPrice(parseFloat(e.target.value))}
+                        value={priceDay}
+                        onChange={(e) => setPriceDay(parseFloat(e.target.value))}
+                        className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Price Per Slot (7 PM - 6 AM) (₹)</label>
+                      <input
+                        type="number"
+                        required
+                        min={0}
+                        value={priceNight}
+                        onChange={(e) => setPriceNight(parseFloat(e.target.value))}
                         className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
                       />
                     </div>
