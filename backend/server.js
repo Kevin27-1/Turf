@@ -836,7 +836,7 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
     let revenueThisMonth = 0;
     let revenueLastMonth = 0;
 
-    // Daily breakdown for the last 90 days with desktop and mobile split
+    // Daily breakdown for the last 90 days
     const dailyEarningsMap = {};
     for (let i = 89; i >= 0; i--) {
       const d = new Date(today);
@@ -845,7 +845,7 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
       const m = String(d.getMonth() + 1).padStart(2, '0');
       const dayStr = String(d.getDate()).padStart(2, '0');
       const dateKey = `${y}-${m}-${dayStr}`;
-      dailyEarningsMap[dateKey] = { desktop: 0, mobile: 0 };
+      dailyEarningsMap[dateKey] = 0;
     }
 
     bookings.forEach(b => {
@@ -874,16 +874,14 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
       }
 
       if (dailyEarningsMap[b.date] !== undefined) {
-        const device = b.device_type === 'desktop' ? 'desktop' : 'mobile';
-        dailyEarningsMap[b.date][device] += totalSlotRevenue;
+        dailyEarningsMap[b.date] += totalSlotRevenue;
       }
     });
 
     const chartData = Object.keys(dailyEarningsMap).map(dateStr => {
       return {
         date: dateStr,
-        desktop: dailyEarningsMap[dateStr].desktop,
-        mobile: dailyEarningsMap[dateStr].mobile
+        revenue: dailyEarningsMap[dateStr]
       };
     });
 

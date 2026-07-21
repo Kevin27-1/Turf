@@ -3580,7 +3580,7 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
         <div>
           <h3 className="text-base font-black uppercase text-white tracking-wider">Money Earned vs Time</h3>
           <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-0.5 font-bold">
-            Interactive breakdown showing revenue origin (Desktop vs Mobile)
+            Interactive daily revenue trend
           </p>
         </div>
 
@@ -3605,13 +3605,9 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={filteredData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="fillDesktop" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="fillRevenue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#22c55e" stopOpacity={0.8} />
                     <stop offset="95%" stopColor="#22c55e" stopOpacity={0.05} />
-                  </linearGradient>
-                  <linearGradient id="fillMobile" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
 
@@ -3643,24 +3639,14 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
                         day: "numeric",
                         year: "numeric"
                       });
-                      const mobileAmt = payload.find(p => p.dataKey === 'mobile')?.value || 0;
-                      const desktopAmt = payload.find(p => p.dataKey === 'desktop')?.value || 0;
-                      const totalAmt = mobileAmt + desktopAmt;
+                      const revAmt = payload[0]?.value || 0;
 
                       return (
                         <div className="bg-neutral-900 border border-neutral-800 p-3 shadow-xl text-xs space-y-1.5 min-w-[150px]">
                           <p className="font-extrabold text-white border-b border-neutral-800 pb-1">{formattedDate}</p>
-                          <div className="flex justify-between items-center text-[#22c55e] font-bold">
-                            <span>Desktop:</span>
-                            <span>₹{desktopAmt}</span>
-                          </div>
-                          <div className="flex justify-between items-center text-[#3b82f6] font-bold">
-                            <span>Mobile:</span>
-                            <span>₹{mobileAmt}</span>
-                          </div>
-                          <div className="flex justify-between items-center text-white font-extrabold pt-1 border-t border-neutral-800">
-                            <span>Total Revenue:</span>
-                            <span>₹{totalAmt}</span>
+                          <div className="flex justify-between items-center text-[#22c55e] font-extrabold pt-1">
+                            <span>Revenue:</span>
+                            <span>₹{revAmt}</span>
                           </div>
                         </div>
                       );
@@ -3670,16 +3656,9 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
                 />
 
                 <Area
-                  dataKey="mobile"
+                  dataKey="revenue"
                   type="monotone"
-                  fill="url(#fillMobile)"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                />
-                <Area
-                  dataKey="desktop"
-                  type="monotone"
-                  fill="url(#fillDesktop)"
+                  fill="url(#fillRevenue)"
                   stroke="#22c55e"
                   strokeWidth={2}
                 />
@@ -3695,10 +3674,7 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
         {/* Custom Legend */}
         <div className="flex justify-center items-center gap-6 mt-4 pt-3 border-t border-neutral-900 text-xs font-extrabold uppercase tracking-wider">
           <span className="flex items-center gap-2 text-[#22c55e]">
-            <span className="w-3 h-3 bg-[#22c55e] rounded-xs inline-block"></span> Desktop Revenue
-          </span>
-          <span className="flex items-center gap-2 text-[#3b82f6]">
-            <span className="w-3 h-3 bg-[#3b82f6] rounded-xs inline-block"></span> Mobile Revenue
+            <span className="w-3 h-3 bg-[#22c55e] rounded-xs inline-block"></span> Revenue
           </span>
         </div>
       </div>
