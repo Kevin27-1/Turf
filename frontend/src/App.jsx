@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { auth } from './firebase.js';
 import BounceCards from './BounceCards.jsx';
-import CircularGallery from './CircularGallery.jsx';
+import Dock from './Dock.jsx';
 import { RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { 
   Calendar, 
@@ -1058,24 +1058,38 @@ export default function App() {
 
           {/* D. PHOTO GALLERY SECTION */}
           <section className="scroll-reveal gallery-anchor w-full py-8 border-t border-neutral-900 md:py-16 md:border-t-0">
-            <div className="w-full">
-              <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4 px-6 md:px-16 md:text-xs md:mb-8">
+            <div className="md:max-w-7xl md:mx-auto md:px-16">
+              <h3 className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest mb-4 px-6 md:px-0 md:text-xs md:mb-8">
                 COURT GALLERY
               </h3>
-              <div className="w-full h-[450px] md:h-[600px] relative overflow-hidden">
-                <CircularGallery
-                  items={galleryImages.map(img => ({ image: img.src, text: img.caption }))}
-                  bend={3}
-                  textColor="#ffffff"
-                  borderRadius={0.05}
-                  scrollEase={0.02}
-                  fontUrl="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap"
-                  font="bold 30px Orbitron"
-                />
+              {/* Mobile: horizontal scroll */}
+              <div className="flex md:hidden gap-3 overflow-x-auto px-6 pb-4 no-scrollbar snap-x snap-mandatory scroll-smooth">
+                {galleryImages.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleLightboxOpen(idx)}
+                    className="flex-shrink-0 w-[180px] h-[120px] border border-neutral-900 bg-neutral-950 relative overflow-hidden snap-center hover:border-[#22c55e]/50 transition"
+                  >
+                    <img src={img.src} alt={img.caption} className="w-full h-full object-cover hover:scale-105 transition duration-300" />
+                    <div className="absolute bottom-0 inset-x-0 bg-black/80 px-2 py-1 text-[8px] font-bold uppercase tracking-wider text-neutral-400 text-left truncate">{img.caption}</div>
+                  </button>
+                ))}
               </div>
-              <p className="text-[8px] md:text-[10px] text-neutral-500 text-center uppercase tracking-widest font-bold mt-4">
-                Drag or scroll to rotate 3D gallery • Keyboard arrows supported
-              </p>
+              {/* Desktop: grid */}
+              <div className="hidden md:grid grid-cols-3 gap-4">
+                {galleryImages.map((img, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleLightboxOpen(idx)}
+                    className="w-full h-[220px] border border-neutral-900 bg-neutral-950 relative overflow-hidden hover:border-[#22c55e]/50 transition group"
+                  >
+                    <img src={img.src} alt={img.caption} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                    <div className="absolute bottom-0 inset-x-0 bg-black/80 px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-neutral-400 text-left truncate">{img.caption}</div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[8px] text-neutral-600 text-center uppercase tracking-widest font-bold mt-4 md:hidden">Swipe to explore • Tap to expand</p>
+              <p className="hidden md:block text-[9px] text-neutral-600 text-center uppercase tracking-widest font-bold mt-4">Click any photo to expand</p>
             </div>
           </section>
 
@@ -2281,39 +2295,37 @@ export default function App() {
       )}
 
       {/* --- FIXED BOTTOM NAVIGATION BAR --- */}
-      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-neutral-950 border-t border-neutral-900 py-3 px-6 grid grid-cols-4 gap-1 text-center z-40">
-        <button
-          onClick={() => { setCurrentTab('home'); setProfileSub(null); setConfirmedBooking(null); }}
-          className={`flex flex-col items-center gap-1 transition ${currentTab === 'home' ? 'text-[#22c55e]' : 'text-neutral-500'}`}
-        >
-          <Clock className="w-5 h-5" />
-          <span className="text-[9px] font-bold uppercase tracking-wider">Home</span>
-        </button>
-        
-        <button
-          onClick={() => { setCurrentTab('book'); setProfileSub(null); setConfirmedBooking(null); }}
-          className={`flex flex-col items-center gap-1 transition ${currentTab === 'book' ? 'text-[#22c55e]' : 'text-neutral-500'}`}
-        >
-          <Calendar className="w-5 h-5" />
-          <span className="text-[9px] font-bold uppercase tracking-wider">Book</span>
-        </button>
-
-        <button
-          onClick={() => { setCurrentTab('passes'); setProfileSub(null); }}
-          className={`flex flex-col items-center gap-1 transition ${currentTab === 'passes' ? 'text-[#22c55e]' : 'text-neutral-500'}`}
-        >
-          <History className="w-5 h-5" />
-          <span className="text-[9px] font-bold uppercase tracking-wider">Passes</span>
-        </button>
-
-        <button
-          onClick={() => { setCurrentTab('profile'); setProfileSub(null); setConfirmedBooking(null); }}
-          className={`flex flex-col items-center gap-1 transition ${currentTab === 'profile' ? 'text-[#22c55e]' : 'text-neutral-500'}`}
-        >
-          <User className="w-5 h-5" />
-          <span className="text-[9px] font-bold uppercase tracking-wider">Profile</span>
-        </button>
-      </nav>
+      <div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pb-2 pointer-events-none">
+        <div className="pointer-events-auto">
+          <Dock 
+            items={[
+              { 
+                icon: <Clock className="w-5 h-5 text-neutral-300" />, 
+                label: 'Home', 
+                onClick: () => { setCurrentTab('home'); setProfileSub(null); setConfirmedBooking(null); } 
+              },
+              { 
+                icon: <Calendar className="w-5 h-5 text-neutral-300" />, 
+                label: 'Book', 
+                onClick: () => { setCurrentTab('book'); setProfileSub(null); setConfirmedBooking(null); } 
+              },
+              { 
+                icon: <History className="w-5 h-5 text-neutral-300" />, 
+                label: 'Passes', 
+                onClick: () => { setCurrentTab('passes'); setProfileSub(null); } 
+              },
+              { 
+                icon: <User className="w-5 h-5 text-neutral-300" />, 
+                label: 'Profile', 
+                onClick: () => { setCurrentTab('profile'); setProfileSub(null); setConfirmedBooking(null); } 
+              },
+            ]}
+            panelHeight={68}
+            baseItemSize={50}
+            magnification={70}
+          />
+        </div>
+      </div>
 
       {/* --- PHOTO LIGHTBOX PORTAL OVERLAY --- */}
       {lightboxOpen && (
