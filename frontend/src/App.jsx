@@ -278,14 +278,21 @@ export default function App() {
     const updateTimer = () => {
       const heldUntilTime = new Date(holdData.heldUntil).getTime();
       const now = Date.now();
-      const diff = Math.max(0, Math.floor((heldUntilTime - now) / 1000));
+      const rawDiff = Math.floor((heldUntilTime - now) / 1000);
       
-      setHoldTimeLeft(diff);
-      
-      if (diff <= 0) {
-        // Automatically close this window when timer hits 0
-        handleCloseBooking();
+      if (rawDiff <= 0) {
+        setHoldTimeLeft(0);
+        setSelectedSlot(null);
+        setHoldData(null);
+        setBookingError('');
+        setBookingLoading(false);
+        if (selectedDate) {
+          fetchSlots(selectedDate, true);
+        }
+        return;
       }
+      
+      setHoldTimeLeft(rawDiff);
     };
     
     updateTimer();
@@ -2389,7 +2396,7 @@ export default function App() {
       )}
 
       {/* BOOKING MODAL (BOTTOM DRAWER) */}
-      {selectedSlot && (
+      {selectedSlot && (holdData ? holdTimeLeft > 0 : true) && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-xs z-50 flex items-end justify-center p-4">
           <div className="absolute inset-0" onClick={handleCloseBooking}></div>
 
