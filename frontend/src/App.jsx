@@ -3673,7 +3673,6 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
                   fill="url(#fillMobile)"
                   stroke="#3b82f6"
                   strokeWidth={2}
-                  stackId="1"
                 />
                 <Area
                   dataKey="desktop"
@@ -3681,7 +3680,6 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
                   fill="url(#fillDesktop)"
                   stroke="#22c55e"
                   strokeWidth={2}
-                  stackId="1"
                 />
               </AreaChart>
             </ResponsiveContainer>
