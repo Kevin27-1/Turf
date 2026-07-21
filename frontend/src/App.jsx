@@ -943,10 +943,10 @@ export default function App() {
                 const lastName = nameParts.slice(1).join(' ') || 'Turf';
                 return (
                   <>
-                    <h1 style={{transitionDelay:'80ms'}} className="scroll-reveal text-[2.25rem] font-black tracking-tighter uppercase text-white leading-none">
+                    <h1 style={{transitionDelay:'80ms'}} className="scroll-reveal text-[1.85rem] sm:text-[2.25rem] font-black tracking-wider uppercase text-white leading-none">
                       {firstName}
                     </h1>
-                    <h1 style={{transitionDelay:'160ms'}} className="scroll-reveal text-[3.5rem] font-black tracking-tighter uppercase text-[#22c55e] leading-none mt-0.5">
+                    <h1 style={{transitionDelay:'160ms'}} className="scroll-reveal text-[3rem] sm:text-[3.5rem] font-black tracking-wider uppercase text-[#22c55e] leading-none mt-0.5">
                       {lastName}
                     </h1>
                   </>
@@ -981,10 +981,10 @@ export default function App() {
                 const lastName = nameParts.slice(1).join(' ') || 'Turf';
                 return (
                   <>
-                    <h1 className="scroll-reveal text-[5rem] font-black tracking-tighter uppercase text-white leading-none">
+                    <h1 className="scroll-reveal text-[4rem] lg:text-[5rem] font-black tracking-wider uppercase text-white leading-none">
                       {firstName}
                     </h1>
-                    <h1 style={{transitionDelay:'120ms'}} className="scroll-reveal text-[6.5rem] font-black tracking-tighter uppercase text-[#22c55e] leading-none">
+                    <h1 style={{transitionDelay:'120ms'}} className="scroll-reveal text-[5.5rem] lg:text-[6.5rem] font-black tracking-wider uppercase text-[#22c55e] leading-none">
                       {lastName}
                     </h1>
                   </>
