@@ -181,8 +181,7 @@ export default function App() {
   const galleryImages = [
     { src: '/turf_real_day.jpg', caption: 'Golden Arm Turf Pitch View (Day)' },
     { src: '/turf_real_night.jpg', caption: 'Playing at Night Under Lights' },
-    { src: '/turf_grass.jpg', caption: 'FIFA-certified Surface Close-up' },
-    { src: '/turf_real_map.png', caption: 'Golden Arm Turf Map Location' }
+    { src: '/turf_grass.jpg', caption: 'FIFA-certified Surface Close-up' }
   ];
 
   // Restore session from localStorage on Mount
