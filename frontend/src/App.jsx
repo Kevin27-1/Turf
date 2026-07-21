@@ -481,6 +481,7 @@ export default function App() {
         totalAmount: data.total_amount,
         advanceAmount: data.advance_amount,
         balanceAmount: data.balance_amount,
+        advancePct: data.advance_pct,
         heldUntil: new Date(data.held_until)
       });
     } catch (err) {
@@ -2437,7 +2438,7 @@ export default function App() {
                   </div>
                   <div className="flex justify-between items-center text-xs border-b border-neutral-900 pb-2">
                     <span className="text-[9px] font-bold text-[#22c55e] uppercase tracking-wider flex items-center gap-1">
-                      Advance Due Now (40%)
+                      Advance Due Now ({holdData.advancePct}%)
                     </span>
                     <span className="font-black text-[#22c55e] text-sm">₹{holdData.advanceAmount}</span>
                   </div>

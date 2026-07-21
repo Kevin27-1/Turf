@@ -428,6 +428,7 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
       total_amount: totalPrice,
       advance_amount: advanceAmount,
       balance_amount: balanceAmount,
+      advance_pct: advPct,
       held_until: heldUntil
     });
 
