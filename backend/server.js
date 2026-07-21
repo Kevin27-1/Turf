@@ -400,12 +400,14 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
     // 5. Insert pending booking record
     const bookingId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
+    const deviceType = req.body.device_type === 'desktop' ? 'desktop' : 'mobile';
+
     await query(
       `INSERT INTO bookings (
         id, slot_id, user_id, created_at, 
         total_amount, advance_amount, advance_paid_amount, balance_amount, 
-        razorpay_order_id, payment_verified, booking_status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        razorpay_order_id, payment_verified, booking_status, device_type
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         bookingId,
         slot_id,
@@ -417,7 +419,8 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
         totalPrice, // Remaining balance starts as total_amount
         order.id,
         false, // payment_verified
-        'pending' // booking_status
+        'pending', // booking_status
+        deviceType
       ]
     );
 
@@ -800,7 +803,7 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
   try {
     // Fetch all bookings that are confirmed or completed (non-pending)
     const bookingsRes = await query(`
-      SELECT b.total_amount, b.advance_paid_amount, b.balance_amount, b.booking_status, b.balance_payment_status, s.date
+      SELECT b.total_amount, b.advance_paid_amount, b.balance_amount, b.booking_status, b.balance_payment_status, b.device_type, s.date
       FROM bookings b
       JOIN slots s ON b.slot_id = s.id
       WHERE b.booking_status != 'pending'
@@ -833,16 +836,16 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
     let revenueThisMonth = 0;
     let revenueLastMonth = 0;
 
-    // Daily breakdown for the last 30 days
+    // Daily breakdown for the last 90 days with desktop and mobile split
     const dailyEarningsMap = {};
-    for (let i = 29; i >= 0; i--) {
+    for (let i = 89; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
       const dayStr = String(d.getDate()).padStart(2, '0');
       const dateKey = `${y}-${m}-${dayStr}`;
-      dailyEarningsMap[dateKey] = 0;
+      dailyEarningsMap[dateKey] = { desktop: 0, mobile: 0 };
     }
 
     bookings.forEach(b => {
@@ -871,16 +874,16 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
       }
 
       if (dailyEarningsMap[b.date] !== undefined) {
-        dailyEarningsMap[b.date] += totalSlotRevenue;
+        const device = b.device_type === 'desktop' ? 'desktop' : 'mobile';
+        dailyEarningsMap[b.date][device] += totalSlotRevenue;
       }
     });
 
-    const monthlyDailyEarnings = Object.keys(dailyEarningsMap).map(dateStr => {
-      const d = new Date(dateStr);
+    const chartData = Object.keys(dailyEarningsMap).map(dateStr => {
       return {
         date: dateStr,
-        label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        amount: dailyEarningsMap[dateStr]
+        desktop: dailyEarningsMap[dateStr].desktop,
+        mobile: dailyEarningsMap[dateStr].mobile
       };
     });
 
@@ -899,7 +902,7 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
       revenueThisMonth,
       revenueLastMonth,
       monthOverMonthChangePct,
-      monthlyDailyEarnings
+      chartData
     });
   } catch (err) {
     console.error('Failed to get stats:', err);

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { AreaChart, Area, XAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { auth } from './firebase.js';
 import BounceCards from './BounceCards.jsx';
 import Dock from './Dock.jsx';
@@ -462,13 +463,15 @@ export default function App() {
       const token = localStorage.getItem('jwt_token');
       if (!token) throw new Error('Please log in to book a slot.');
 
+      const deviceType = window.innerWidth >= 768 ? 'desktop' : 'mobile';
+
       const res = await fetch('/api/bookings/hold', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ slot_id: slot.id })
+        body: JSON.stringify({ slot_id: slot.id, device_type: deviceType })
       });
 
       const data = await res.json();
@@ -3524,61 +3527,8 @@ function AdminApp() {
                       </div>
                     </div>
 
-                    {/* Monthly Revenue vs Time Graph */}
-                    <div className="border border-neutral-900 bg-neutral-950 p-6 space-y-4">
-                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-neutral-900 pb-4">
-                        <div>
-                          <h3 className="text-sm font-black uppercase text-white tracking-wider">Money Earned vs Time (Last 30 Days)</h3>
-                          <p className="text-[9px] text-neutral-500 uppercase tracking-widest mt-0.5 font-bold">Daily revenue breakdown across the past month</p>
-                        </div>
-                        <div className="flex items-center gap-3 text-[10px] uppercase font-bold">
-                          <span className="flex items-center gap-1.5 text-neutral-400">
-                            <span className="w-2.5 h-2.5 bg-[#22c55e] inline-block"></span> Daily Earnings
-                          </span>
-                        </div>
-                      </div>
-
-                      {stats.monthlyDailyEarnings && stats.monthlyDailyEarnings.length > 0 ? (
-                        (() => {
-                          const maxAmount = Math.max(...stats.monthlyDailyEarnings.map(d => d.amount), 1);
-                          return (
-                            <div className="pt-4">
-                              {/* Graph Bars Container */}
-                              <div className="h-48 w-full flex items-end justify-between gap-1 border-b border-neutral-800 pb-2">
-                                {stats.monthlyDailyEarnings.map((item, idx) => {
-                                  const heightPct = maxAmount > 0 ? Math.round((item.amount / maxAmount) * 100) : 0;
-                                  // Minimum visible height of 6px if 0 earnings, or heightPct% if > 0
-                                  const barHeightStyle = item.amount > 0 ? `${Math.max(heightPct, 6)}%` : '6px';
-                                  return (
-                                    <div key={idx} className="flex-1 h-full flex flex-col justify-end items-center group relative">
-                                      {/* Tooltip */}
-                                      <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-8 bg-neutral-900 border border-neutral-700 text-white text-[9px] font-mono font-bold px-1.5 py-0.5 z-20 whitespace-nowrap pointer-events-none">
-                                        {item.label}: ₹{item.amount}
-                                      </div>
-
-                                      {/* Bar */}
-                                      <div 
-                                        style={{ height: barHeightStyle }}
-                                        className={`w-full transition-all duration-300 rounded-xs ${item.amount > 0 ? 'bg-[#22c55e] hover:bg-[#1db252] shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-neutral-800/80 hover:bg-neutral-700'}`}
-                                      ></div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              {/* Graph X-Axis Date Labels */}
-                              <div className="flex justify-between items-center text-[8px] font-mono font-bold text-neutral-500 mt-2 px-1">
-                                <span>{stats.monthlyDailyEarnings[0]?.label}</span>
-                                <span>{stats.monthlyDailyEarnings[14]?.label}</span>
-                                <span>{stats.monthlyDailyEarnings[stats.monthlyDailyEarnings.length - 1]?.label}</span>
-                              </div>
-                            </div>
-                          );
-                        })()
-                      ) : (
-                        <div className="text-center py-10 text-neutral-600 text-xs uppercase font-bold">No revenue data available for the past month</div>
-                      )}
-                    </div>
+                    {/* Recharts Area Chart - Interactive Desktop vs Mobile Breakdown */}
+                    <InteractiveRevenueChart rawChartData={stats.chartData || []} />
                   </>
                 ) : (
                   <div className="text-center p-8 text-neutral-500 text-xs">No stats data found.</div>
@@ -3588,6 +3538,167 @@ function AdminApp() {
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+// ==========================================
+// RECHARTS INTERACTIVE AREA CHART COMPONENT
+// ==========================================
+function InteractiveRevenueChart({ rawChartData = [] }) {
+  const [timeRange, setTimeRange] = useState("30d");
+
+  const filteredData = React.useMemo(() => {
+    if (!rawChartData || rawChartData.length === 0) return [];
+    
+    // Default to last date in dataset or today
+    const lastDateStr = rawChartData[rawChartData.length - 1]?.date || new Date().toISOString().split('T')[0];
+    const referenceDate = new Date(lastDateStr);
+
+    let daysToSubtract = 30;
+    if (timeRange === "90d") daysToSubtract = 90;
+    if (timeRange === "7d") daysToSubtract = 7;
+
+    const startDate = new Date(referenceDate);
+    startDate.setDate(startDate.getDate() - daysToSubtract);
+
+    return rawChartData.filter((item) => {
+      const d = new Date(item.date);
+      return d >= startDate;
+    });
+  }, [rawChartData, timeRange]);
+
+  return (
+    <div className="border border-neutral-900 bg-neutral-950 p-6 space-y-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-neutral-900 pb-5">
+        <div>
+          <h3 className="text-base font-black uppercase text-white tracking-wider">Money Earned vs Time</h3>
+          <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-0.5 font-bold">
+            Interactive breakdown showing revenue origin (Desktop vs Mobile)
+          </p>
+        </div>
+
+        {/* Timeframe Filter Dropdown */}
+        <div className="flex items-center gap-2">
+          <select
+            value={timeRange}
+            onChange={(e) => setTimeRange(e.target.value)}
+            className="bg-[#070707] border border-neutral-800 text-white text-xs font-bold uppercase tracking-wider px-3 py-2 focus:outline-none focus:border-[#22c55e] cursor-pointer"
+          >
+            <option value="90d">Last 3 months</option>
+            <option value="30d">Last 30 days</option>
+            <option value="7d">Last 7 days</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Recharts Area Chart */}
+      <div className="pt-2">
+        {filteredData.length > 0 ? (
+          <div className="h-[280px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={filteredData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="fillDesktop" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.05} />
+                  </linearGradient>
+                  <linearGradient id="fillMobile" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+
+                <CartesianGrid vertical={false} stroke="#262626" strokeDasharray="3 3" />
+
+                <XAxis
+                  dataKey="date"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  minTickGap={24}
+                  tick={{ fill: '#737373', fontSize: 10, fontWeight: 700 }}
+                  tickFormatter={(value) => {
+                    const d = new Date(value);
+                    return d.toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    });
+                  }}
+                />
+
+                <Tooltip
+                  cursor={{ stroke: '#525252', strokeWidth: 1 }}
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      const formattedDate = new Date(label).toLocaleDateString("en-US", {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric"
+                      });
+                      const mobileAmt = payload.find(p => p.dataKey === 'mobile')?.value || 0;
+                      const desktopAmt = payload.find(p => p.dataKey === 'desktop')?.value || 0;
+                      const totalAmt = mobileAmt + desktopAmt;
+
+                      return (
+                        <div className="bg-neutral-900 border border-neutral-800 p-3 shadow-xl text-xs space-y-1.5 min-w-[150px]">
+                          <p className="font-extrabold text-white border-b border-neutral-800 pb-1">{formattedDate}</p>
+                          <div className="flex justify-between items-center text-[#22c55e] font-bold">
+                            <span>Desktop:</span>
+                            <span>₹{desktopAmt}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[#3b82f6] font-bold">
+                            <span>Mobile:</span>
+                            <span>₹{mobileAmt}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-white font-extrabold pt-1 border-t border-neutral-800">
+                            <span>Total Revenue:</span>
+                            <span>₹{totalAmt}</span>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+
+                <Area
+                  dataKey="mobile"
+                  type="monotone"
+                  fill="url(#fillMobile)"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  stackId="1"
+                />
+                <Area
+                  dataKey="desktop"
+                  type="monotone"
+                  fill="url(#fillDesktop)"
+                  stroke="#22c55e"
+                  strokeWidth={2}
+                  stackId="1"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="text-center py-12 text-neutral-600 text-xs font-bold uppercase tracking-wider">
+            No chart data recorded for the selected timeframe.
+          </div>
+        )}
+
+        {/* Custom Legend */}
+        <div className="flex justify-center items-center gap-6 mt-4 pt-3 border-t border-neutral-900 text-xs font-extrabold uppercase tracking-wider">
+          <span className="flex items-center gap-2 text-[#22c55e]">
+            <span className="w-3 h-3 bg-[#22c55e] rounded-xs inline-block"></span> Desktop Revenue
+          </span>
+          <span className="flex items-center gap-2 text-[#3b82f6]">
+            <span className="w-3 h-3 bg-[#3b82f6] rounded-xs inline-block"></span> Mobile Revenue
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

@@ -189,6 +189,7 @@ function initializeSqliteTables() {
       refund_amount REAL,
       refund_status TEXT,
       balance_payment_status TEXT DEFAULT 'pending',
+      device_type TEXT DEFAULT 'mobile',
       FOREIGN KEY (slot_id) REFERENCES slots(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
@@ -264,6 +265,7 @@ async function initializePostgresTables() {
       refund_amount REAL,
       refund_status TEXT,
       balance_payment_status TEXT DEFAULT 'pending',
+      device_type TEXT DEFAULT 'mobile',
       FOREIGN KEY (slot_id) REFERENCES slots(id),
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
