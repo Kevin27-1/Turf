@@ -2880,6 +2880,9 @@ function AdminApp() {
       });
       if (res.ok) {
         setSettingsSuccess('Settings updated successfully!');
+        fetch('/api/settings/public').then(r => r.json()).then(data => setPublicSettings(data)).catch(() => {});
+        if (selectedDate) fetchSlots(selectedDate, true);
+        if (calendarDate) fetchCalendarSlots();
       } else {
         const data = await res.json();
         throw new Error(data.error || 'Failed to save settings');

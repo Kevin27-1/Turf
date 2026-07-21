@@ -412,8 +412,8 @@ export const query = async (text, params = []) => {
         return { rows: [] };
       }
       
-      // 8. UPDATE slots SET status = $1 WHERE id = $2 (and variations for holds)
-      if (trimmedText.startsWith('UPDATE slots SET status =') || trimmedText.startsWith('UPDATE slots SET status=')) {
+      // 8. UPDATE slots (status / price)
+      if (trimmedText.startsWith('UPDATE slots SET') || trimmedText.startsWith('UPDATE slots SET')) {
         if (trimmedText.includes('held_until = NULL') && trimmedText.includes('held_until <')) {
           // Revert expired holds query: UPDATE slots SET status = 'available', ... WHERE held_until < $1
           const snap = await firestoreDb.collection('slots')
@@ -475,9 +475,9 @@ export const query = async (text, params = []) => {
             }
           });
           return { rows: [], rowCount };
-        } else if (trimmedText.startsWith('UPDATE slots SET price =') || trimmedText.startsWith('UPDATE slots SET price=')) {
+        } else if (trimmedText.includes('price =') || trimmedText.includes('price=')) {
           const isDayUpdate = trimmedText.includes("start_time >= '06:00'") && trimmedText.includes("start_time < '19:00'");
-          const snap = await firestoreDb.collection('slots').where('status', '==', 'available').get();
+          const snap = await firestoreDb.collection('slots').where('status', 'in', ['available', 'held']).get();
           const batch = firestoreDb.batch();
           let count = 0;
           snap.docs.forEach(doc => {
