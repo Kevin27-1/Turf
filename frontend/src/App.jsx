@@ -168,11 +168,6 @@ export default function App() {
   const [ratingFeedback, setRatingFeedback] = useState('');
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
 
-  // Cancellation State
-  const [cancelingId, setCancelingId] = useState(null);
-  const [cancelError, setCancelError] = useState('');
-  const [activeCancellation, setActiveCancellation] = useState(null);
-  const [cancelSuccessData, setCancelSuccessData] = useState(null);
 
   // INTERACTIVE HOME STATES
   const [liveTeaserText, setLiveTeaserText] = useState('Checking today\'s schedule...');
@@ -380,37 +375,6 @@ export default function App() {
     }
   };
 
-  const handleCancelBooking = async (bookingId) => {
-    setCancelingId(bookingId);
-    setCancelError('');
-    try {
-      const token = localStorage.getItem('jwt_token');
-      const res = await fetch(`/api/bookings/${bookingId}/cancel`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to cancel booking');
-      }
-
-      setCancelSuccessData({ message: data.message });
-
-      // Re-fetch bookings history and slots list
-      await fetchBookings();
-      if (selectedDate) {
-        await fetchSlots(selectedDate);
-      }
-    } catch (err) {
-      console.error('Error cancelling booking:', err);
-      setCancelError(err.message || 'Failed to cancel booking.');
-    } finally {
-      setCancelingId(null);
-    }
-  };
 
   const fetchLiveTeaser = async () => {
     try {
@@ -1528,6 +1492,10 @@ export default function App() {
                       Please pay the remaining ₹{confirmedBooking.balance_amount} at the venue
                     </div>
 
+                    <div className="p-3 bg-red-950/10 border border-red-950/30 text-[9px] text-neutral-500 font-bold uppercase tracking-wide leading-normal">
+                      All bookings are final. Advance payments are non-refundable once a slot is confirmed.
+                    </div>
+
                     <div className="pt-2.5 border-t border-neutral-900">
                       <span className="text-[9px] uppercase font-bold tracking-wider text-neutral-500 block">Phone</span>
                       <span className="font-bold text-neutral-400 mt-0.5 block">
@@ -1623,47 +1591,7 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Cancellation Display & Button */}
-                        {isCancelled && b.refund_status && (
-                          <div className="mt-3 pt-3 border-t border-dashed border-neutral-900 text-[10px] uppercase font-bold tracking-wider">
-                            {b.refund_status === 'processed' && (
-                              <span className="text-[#22c55e]">Refund processed (₹{b.refund_amount})</span>
-                            )}
-                            {b.refund_status === 'pending' && (
-                              <span className="text-amber-500">Refund pending (₹{b.refund_amount})</span>
-                            )}
-                            {b.refund_status === 'not_applicable' && (
-                              <span className="text-neutral-500">No refund applies</span>
-                            )}
-                          </div>
-                        )}
 
-                        {!isCancelled && isUpcoming && (
-                          <div className="mt-3 pt-3 border-t border-dashed border-neutral-900 flex flex-col gap-2">
-                            <div className="text-[9px] uppercase font-bold tracking-wider">
-                              {!isPastDeadline ? (
-                                <span className="text-[#22c55e]">
-                                  Free cancellation until {formatDeadlineDisplay(b.cancellation_deadline)}
-                                </span>
-                              ) : (
-                                <span className="text-red-500/80">
-                                  Cancellation window has passed (No Refund)
-                                </span>
-                              )}
-                            </div>
-                            <button
-                              disabled={cancelingId === b.id}
-                              onClick={(e) => { e.stopPropagation(); setActiveCancellation(b); }}
-                              className={`w-full py-2.5 font-extrabold text-[9px] uppercase tracking-wider transition ${
-                                cancelingId === b.id
-                                  ? 'bg-neutral-800 text-neutral-500 cursor-wait'
-                                  : 'border border-red-500/30 text-red-500 hover:bg-red-500/5 hover:border-red-500'
-                              }`}
-                            >
-                              Cancel Booking
-                            </button>
-                          </div>
-                        )}
                       </div>
                     );
                   })}
@@ -1889,16 +1817,7 @@ export default function App() {
                     </span>
                     <ChevronRight className="w-4 h-4 text-neutral-600" />
                   </button>
-                  <button 
-                    onClick={() => setProfileSub('cancel-board')}
-                    className="w-full p-4 flex items-center justify-between text-left hover:bg-neutral-950/60 transition"
-                  >
-                    <span className="text-xs font-bold text-neutral-300 flex items-center gap-2">
-                      <XCircle className="w-4 h-4 text-red-500" />
-                      Cancellation & Refund
-                    </span>
-                    <ChevronRight className="w-4 h-4 text-neutral-600" />
-                  </button>
+
                 </div>
               </div>
 
@@ -2092,11 +2011,7 @@ export default function App() {
                 {[
                   {
                     q: "What is the cancellation policy?",
-                    a: "Bookings can be canceled up to 4 hours before the slot start time. Canceled bookings are fully refunded and the slot is immediately opened for others to reserve."
-                  },
-                  {
-                    q: "How do I reschedule a slot?",
-                    a: "Currently, rescheduling is done by canceling your current slot (at least 4 hours in advance) and placing a booking for a new time block."
+                    a: "All bookings are final. Advance payments are non-refundable once a slot is confirmed."
                   },
                   {
                     q: "What payment methods do you accept?",
@@ -2272,83 +2187,6 @@ export default function App() {
                   Log Out Profile
                 </button>
               </div>
-            </div>
-          )}
-
-          {/* F. CANCELLATION BOARD */}
-          {profileSub === 'cancel-board' && (
-            <div className="animate-in fade-in duration-200">
-              <button 
-                onClick={() => setProfileSub(null)}
-                className="text-xs font-bold uppercase tracking-wider text-neutral-400 mb-6 flex items-center gap-1 hover:text-white"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
-              </button>
-
-              <h3 className="text-base font-black text-white uppercase mb-2">Cancel Bookings</h3>
-              <p className="text-[9px] text-red-500 uppercase font-bold tracking-wider mb-5 flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                Cutoff: Min. 4 hours before slot time
-              </p>
-
-              {cancelError && (
-                <div className="p-3 mb-4 border border-red-950 bg-red-955/20 text-xs text-red-500 font-bold">
-                  {cancelError}
-                </div>
-              )}
-
-              {(() => {
-                const activeBookings = myBookings.filter(b => b.booking_status === 'confirmed');
-                
-                if (activeBookings.length === 0) {
-                  return (
-                    <div className="border border-neutral-900 bg-neutral-950/20 p-6 text-center">
-                      <XCircle className="w-8 h-8 text-neutral-700 mx-auto mb-2" />
-                      <p className="text-xs font-bold text-neutral-400 mb-1 uppercase tracking-wider">No Active Bookings</p>
-                      <p className="text-[10px] text-neutral-500 max-w-[200px] mx-auto">
-                        There are no active booking passes registered to cancel.
-                      </p>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div className="space-y-4 max-h-[55vh] overflow-y-auto no-scrollbar pr-1 pb-6">
-                    {activeBookings.map((b) => {
-                      const isDeleting = cancelingId === b.id;
-
-                      return (
-                        <div key={b.id} className="border border-neutral-900 bg-neutral-950/40 p-4">
-                          <div className="text-[9px] font-mono text-neutral-600 uppercase mb-2">
-                            ID: {b.id.substring(0, 8).toUpperCase()}
-                          </div>
-
-                          <div className="text-sm font-black text-white uppercase">
-                            {formatTime12h(b.slot.start_time)} - {formatTime12h(b.slot.end_time)}
-                          </div>
-
-                          <div className="text-xs font-bold text-neutral-400 mt-1">
-                            Date: {formatDateDisplayShort(b.slot.date)}
-                          </div>
-
-                          <div className="mt-4 pt-3 border-t border-neutral-900/60 flex items-center justify-between">
-                            <button
-                              onClick={() => setActiveCancellation(b)}
-                              disabled={isDeleting}
-                              className="px-4 py-2 border border-red-500 text-red-500 hover:bg-red-500/10 disabled:opacity-50 text-[10px] font-bold uppercase tracking-wider transition"
-                            >
-                              Cancel Booking
-                            </button>
-                            <span className="text-[10px] font-bold text-[#22c55e]">
-                              ₹{b.slot.price}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
             </div>
           )}
 
@@ -2647,134 +2485,7 @@ export default function App() {
         </div>
       )}
 
-      {/* CANCELLATION CONFIRMATION MODAL (BOTTOM DRAWER) */}
-      {activeCancellation && (() => {
-        const b = activeCancellation;
-        const [year, month, day] = b.slot.date.split('-').map(Number);
-        const [hour, minute] = b.slot.start_time.split(':').map(Number);
-        const slotStartTime = new Date(year, month - 1, day, hour, minute, 0, 0);
-        const isPastDeadline = b.cancellation_deadline ? new Date(b.cancellation_deadline) <= new Date() : true;
 
-        const closeCancelModal = () => {
-          setActiveCancellation(null);
-          setCancelSuccessData(null);
-          setCancelError('');
-        };
-
-        if (cancelSuccessData) {
-          return (
-            <div className="fixed inset-0 bg-black/85 backdrop-blur-xs z-50 flex items-end justify-center p-4">
-              <div className="absolute inset-0" onClick={closeCancelModal}></div>
-
-              <div className="w-full max-w-sm bg-neutral-950 border border-neutral-800 rounded-none relative z-10 p-6 text-center transform translate-y-0 transition duration-300 animate-in slide-in-from-bottom duration-300">
-                
-                <div className="w-12 h-12 bg-[#22c55e]/10 flex items-center justify-center border border-[#22c55e]/30 mb-4 mx-auto">
-                  <CheckCircle className="w-7 h-7 text-[#22c55e]" />
-                </div>
-
-                <h3 className="text-base font-black text-white uppercase tracking-tight mb-2">
-                  Cancellation Confirmed
-                </h3>
-                
-                <p className="text-[10px] text-neutral-500 uppercase font-bold tracking-wider mb-4">
-                  Ref: {b.id.substring(0, 8).toUpperCase()}
-                </p>
-
-                <div className="p-4 border border-[#22c55e]/30 bg-[#22c55e]/5 text-[#22c55e] text-xs font-bold uppercase tracking-wider mb-5">
-                  {cancelSuccessData.message}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={closeCancelModal}
-                  className="w-full py-3 bg-[#22c55e] text-black font-extrabold text-xs uppercase tracking-wider rounded-none shadow-[2px_2px_0px_#000] hover:bg-[#1db252] transition"
-                >
-                  Okay
-                </button>
-
-              </div>
-            </div>
-          );
-        }
-
-        return (
-          <div className="fixed inset-0 bg-black/85 backdrop-blur-xs z-50 flex items-end justify-center p-4">
-            <div className="absolute inset-0" onClick={closeCancelModal}></div>
-
-            <div className="w-full max-w-sm bg-neutral-950 border border-neutral-800 rounded-none relative z-10 p-5 transform translate-y-0 transition duration-300 animate-in slide-in-from-bottom duration-300">
-              
-              <div className="mb-4 pb-3 border-b border-neutral-900">
-                <span className="text-[9px] font-bold text-red-500 uppercase tracking-widest flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" /> Cancel Booking
-                </span>
-                <h3 className="text-lg font-black text-white mt-1 uppercase">
-                  {formatTime12h(b.slot.start_time)} to {formatTime12h(b.slot.end_time)}
-                </h3>
-                <p className="text-[10px] text-neutral-400 mt-1 uppercase font-semibold">
-                  Date: {formatDateDisplayShort(b.slot.date)}
-                </p>
-              </div>
-
-              {cancelError && (
-                <div className="p-3 mb-4 border border-red-955 bg-red-955/20 text-xs text-red-500 font-bold">
-                  {cancelError}
-                </div>
-              )}
-
-              <div className="space-y-4">
-                {/* Cancellation Policy Banner */}
-                <div className={`p-4 border text-[11px] font-bold uppercase tracking-wider leading-relaxed ${
-                  !isPastDeadline 
-                    ? 'border-[#22c55e]/30 bg-[#22c55e]/5 text-[#22c55e]' 
-                    : 'border-amber-500/30 bg-amber-500/5 text-amber-500'
-                }`}>
-                  {!isPastDeadline ? (
-                    <div>
-                      <p className="font-extrabold mb-1">Eligible for Full Refund</p>
-                      <p className="text-[9px] text-neutral-400 normal-case font-medium">
-                        You are cancelling before the 4-hour window. A full refund of ₹{b.advance_paid_amount} will be processed back to your original payment method.
-                      </p>
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="font-extrabold mb-1 text-red-500">Non-Refundable Cancellation</p>
-                      <p className="text-[9px] text-neutral-400 normal-case font-medium">
-                        Cancellations within 4 hours of slot start are not eligible for a refund. No refund will be issued, and the slot will remain blocked.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <button
-                    type="button"
-                    disabled={cancelingId === b.id}
-                    onClick={closeCancelModal}
-                    className="flex-1 py-3 border border-neutral-900 text-neutral-500 hover:text-white font-bold text-xs uppercase tracking-wider rounded-none transition"
-                  >
-                    Go Back
-                  </button>
-                  <button
-                    type="button"
-                    disabled={cancelingId === b.id}
-                    onClick={() => handleCancelBooking(b.id)}
-                    className="flex-2 py-3 bg-red-600 hover:bg-red-750 disabled:opacity-50 text-white font-extrabold text-xs uppercase tracking-wider rounded-none shadow-[2px_2px_0px_#000] transition flex items-center justify-center gap-1.5"
-                  >
-                    {cancelingId === b.id ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cancelling...
-                      </>
-                    ) : (
-                      'Confirm Cancel'
-                    )}
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        );
-      })()}
     </div>
     </div>
   );
@@ -2831,7 +2542,6 @@ function AdminApp() {
   const [duration, setDuration] = useState(60);
   const [price, setPrice] = useState(1200);
   const [advancePct, setAdvancePct] = useState(40);
-  const [cancelHours, setCancelHours] = useState(4);
   const [sports, setSports] = useState('');
   const [settingsSuccess, setSettingsSuccess] = useState('');
 
@@ -2852,8 +2562,6 @@ function AdminApp() {
         await fetchBlockSlots();
       } else if (activeTab === 'pending') {
         await fetchPendingBalances();
-      } else if (activeTab === 'cancellations') {
-        await fetchCancellations();
       } else if (activeTab === 'settings') {
         await fetchSettings();
       } else if (activeTab === 'stats') {
@@ -2910,15 +2618,7 @@ function AdminApp() {
     }
   };
 
-  const fetchCancellations = async () => {
-    const res = await fetch('/api/admin/bookings?booking_status=cancelled', {
-      headers: { 'Authorization': `Bearer ${adminToken}` }
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setBookings(data);
-    }
-  };
+
 
   const fetchSettings = async () => {
     const res = await fetch('/api/admin/settings', {
@@ -2933,7 +2633,6 @@ function AdminApp() {
       setDuration(data.slot_duration_minutes);
       setPrice(data.price_per_slot);
       setAdvancePct(data.advance_payment_percentage);
-      setCancelHours(data.cancellation_window_hours);
       setSports(data.sport_types_offered);
       setSettingsSuccess('');
     }
@@ -3123,7 +2822,6 @@ function AdminApp() {
           slot_duration_minutes: duration,
           price_per_slot: price,
           advance_payment_percentage: advancePct,
-          cancellation_window_hours: cancelHours,
           sport_types_offered: sports
         })
       });
@@ -3211,7 +2909,6 @@ function AdminApp() {
               { id: 'calendar', label: 'Calendar Grid' },
               { id: 'block', label: 'Block Slots' },
               { id: 'pending', label: 'Pending Balances' },
-              { id: 'cancellations', label: 'Cancellations Log' },
               { id: 'settings', label: 'Turf Settings' },
               { id: 'stats', label: 'Stats Analytics' }
             ].map(tab => (
@@ -3671,76 +3368,6 @@ function AdminApp() {
               </div>
             )}
 
-            {activeTab === 'cancellations' && (
-              <div className="space-y-6">
-                <div className="border-b border-neutral-900 pb-5">
-                  <h2 className="text-xl font-black uppercase text-white tracking-tight">Cancellations & Refunds</h2>
-                  <p className="text-[10px] text-neutral-500 uppercase tracking-widest mt-1 font-bold">Past cancellations audit trail</p>
-                </div>
-
-                {bookings.length === 0 ? (
-                  <div className="border border-neutral-900 p-10 bg-neutral-950/20 text-center uppercase tracking-wide">
-                    <p className="text-xs font-bold text-neutral-500">Log Empty</p>
-                    <p className="text-[9px] text-neutral-600 mt-1">No cancellations have been recorded</p>
-                  </div>
-                ) : (
-                  <div className="border border-neutral-900 bg-neutral-950/20 overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b border-neutral-900 text-[9px] text-neutral-500 uppercase font-black tracking-widest bg-neutral-950/60">
-                          <th className="p-4">Customer</th>
-                          <th className="p-4">Play Slot</th>
-                          <th className="p-4">Cancelled At</th>
-                          <th className="p-4 text-center">Window Eligibility</th>
-                          <th className="p-4 text-center">Refund Value</th>
-                          <th className="p-4 text-right">Refund Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-neutral-900/60 font-medium text-neutral-400">
-                        {bookings.map(b => {
-                          const isInWindow = b.cancelled_at && b.cancellation_deadline ? new Date(b.cancelled_at) <= new Date(b.cancellation_deadline) : false;
-                          
-                          return (
-                            <tr key={b.id} className="hover:bg-neutral-950/40 transition">
-                              <td className="p-4 font-bold text-white uppercase">
-                                {b.customer_name}
-                              </td>
-                              <td className="p-4">
-                                <span className="text-white block font-extrabold uppercase">{formatDateDisplayShort(b.date)}</span>
-                                <span className="text-[10px] text-neutral-500 mt-0.5 block">{formatTime12h(b.start_time)} - {formatTime12h(b.end_time)}</span>
-                              </td>
-                              <td className="p-4 text-neutral-300">
-                                {b.cancelled_at ? new Date(b.cancelled_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : 'N/A'}
-                              </td>
-                              <td className="p-4 text-center">
-                                {isInWindow ? (
-                                  <span className="text-[#22c55e] text-[10px] font-bold">Refundable</span>
-                                ) : (
-                                  <span className="text-red-400 text-[10px] font-bold">Non-Refundable</span>
-                                )}
-                              </td>
-                              <td className="p-4 text-center text-white font-bold">
-                                ₹{b.refund_amount || 0}
-                              </td>
-                              <td className="p-4 text-right">
-                                <span className={`inline-block px-2 py-0.5 text-[9px] font-black uppercase border ${
-                                  b.refund_status === 'processed' ? 'bg-[#22c55e]/10 text-[#22c55e] border-[#22c55e]/30' :
-                                  b.refund_status === 'pending' ? 'bg-amber-500/10 text-amber-500 border-amber-500/30' :
-                                  'bg-neutral-800 text-neutral-500 border-neutral-700/50'
-                                }`}>
-                                  {b.refund_status || 'not_applicable'}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-
             {activeTab === 'settings' && (
               <div className="space-y-6">
                 <div className="border-b border-neutral-900 pb-5">
@@ -3839,17 +3466,7 @@ function AdminApp() {
                       />
                     </div>
 
-                    <div>
-                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Cancellation Cutoff (Hours)</label>
-                      <input
-                        type="number"
-                        required
-                        min={0}
-                        value={cancelHours}
-                        onChange={(e) => setCancelHours(parseInt(e.target.value, 10))}
-                        className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
-                      />
-                    </div>
+
                   </div>
 
                   <div className="pt-4 border-t border-neutral-900 text-right">

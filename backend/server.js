@@ -479,16 +479,8 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden: You cannot confirm a booking for another user.' });
     }
 
-    // Calculate cancellation_deadline = slot.start_time - cancellation_window_hours (in IST timezone +05:30)
-    const [year, month, day] = booking.date.split('-').map(Number);
-    const [hour, minute] = booking.start_time.split(':').map(Number);
-    const dateStr = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-    const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:00`;
-    const slotStart = new Date(`${dateStr}T${timeStr}+05:30`);
-    const settings = await getAdminSettings();
-    const cancelWindow = settings.cancellation_window_hours || 4;
-    const deadline = new Date(slotStart.getTime() - cancelWindow * 60 * 60 * 1000);
-    const cancellationDeadline = deadline.toISOString();
+    // No cancellation deadline (cancellations and refunds disabled)
+    const cancellationDeadline = null;
 
     // 3. Update database status in a transaction
     await query('BEGIN');
@@ -566,135 +558,7 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
   }
 });
 
-// POST /api/bookings/:id/cancel (Cancel a booking with 4-hour refund cutoff rule)
-app.post('/api/bookings/:id/cancel', authenticateUser, async (req, res) => {
-  const { id } = req.params;
-  const user_id = req.user.id;
 
-  try {
-    // 1. Get the booking to check cancellation eligibility
-    const bookingCheck = await query(
-      `SELECT b.id, b.slot_id, b.user_id, b.advance_paid_amount, b.razorpay_payment_id, 
-              b.cancellation_deadline, b.booking_status,
-              s.date, s.start_time, s.end_time
-       FROM bookings b
-       JOIN slots s ON b.slot_id = s.id
-       WHERE b.id = $1`,
-      [id]
-    );
-
-    if (bookingCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Booking not found' });
-    }
-
-    const booking = bookingCheck.rows[0];
-
-    // Ensure user owns the booking
-    if (booking.user_id && booking.user_id !== user_id) {
-      return res.status(403).json({ error: 'Forbidden: You cannot cancel another user\'s booking' });
-    }
-
-    // Check if already cancelled
-    if (booking.booking_status === 'cancelled') {
-      return res.status(400).json({ error: 'This booking has already been cancelled.' });
-    }
-
-    const now = new Date();
-    const deadline = new Date(booking.cancellation_deadline);
-    const isEligibleForRefund = now < deadline;
-
-    // 2. Perform cancellation database updates in a transaction
-    await query('BEGIN');
-
-    let refundStatus = 'not_applicable';
-    let refundAmount = 0;
-
-    if (isEligibleForRefund) {
-      refundStatus = 'pending';
-      refundAmount = booking.advance_paid_amount;
-
-      // Update booking status and refund state
-      await query(
-        `UPDATE bookings 
-         SET booking_status = $1, cancelled_at = $2, refund_amount = $3, refund_status = $4 
-         WHERE id = $5`,
-        ['cancelled', now.toISOString(), refundAmount, refundStatus, id]
-      );
-
-      // Revert slot status back to available
-      await query(
-        "UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1",
-        [booking.slot_id]
-      );
-    } else {
-      // Cancellation window has passed: no refund, and slot status is left as-is (remains booked)
-      await query(
-        `UPDATE bookings 
-         SET booking_status = $1, cancelled_at = $2, refund_amount = $3, refund_status = $4 
-         WHERE id = $5`,
-        ['cancelled', now.toISOString(), refundAmount, refundStatus, id]
-      );
-    }
-
-    await query('COMMIT');
-
-    // 3. Trigger Razorpay Refund API if eligible
-    if (isEligibleForRefund && booking.razorpay_payment_id) {
-      try {
-        console.log(`Initiating Razorpay refund for payment ${booking.razorpay_payment_id}...`);
-        await razorpay.payments.refund(booking.razorpay_payment_id, {
-          amount: Math.round(refundAmount * 100), // convert INR rupees to paise
-          notes: {
-            booking_id: booking.id,
-            reason: 'Customer cancelled booking within window'
-          }
-        });
-
-        // Update refund_status to processed
-        await query(
-          `UPDATE bookings 
-           SET refund_status = $1 
-           WHERE id = $2`,
-          ['processed', id]
-        );
-
-        return res.json({
-          success: true,
-          refunded: true,
-          refund_amount: refundAmount,
-          message: `Booking cancelled. ₹${refundAmount} will be refunded to your original payment method within 5-7 business days.`
-        });
-      } catch (rzpErr) {
-        console.error('[RAZORPAY REFUND ERROR] Failed to initiate refund:', rzpErr);
-        // Refund remains in 'pending' status in the database
-        return res.json({
-          success: true,
-          refunded: true,
-          refund_amount: refundAmount,
-          warning: 'Refund initiation failed on gateway. Status set to pending for manual processing.',
-          message: `Booking cancelled, but the refund is currently pending. Contact admin to complete the refund.`
-        });
-      }
-    }
-
-    // Return non-refunded success details
-    return res.json({
-      success: true,
-      refunded: false,
-      refund_amount: 0,
-      message: 'Booking cancelled. As per policy, no refund applies since this was cancelled within 4 hours of the slot.'
-    });
-
-  } catch (err) {
-    try {
-      await query('ROLLBACK');
-    } catch (rbErr) {
-      console.error('Error rolling back cancellation:', rbErr);
-    }
-    console.error('Error cancelling booking:', err);
-    res.status(500).json({ error: 'Failed to process booking cancellation' });
-  }
-});
 
 // JWT Admin Authentication Middleware
 const authenticateAdmin = (req, res, next) => {
@@ -767,7 +631,7 @@ app.put('/api/admin/settings', authenticateAdmin, async (req, res) => {
         parseInt(slot_duration_minutes, 10),
         parseFloat(price_per_slot),
         parseInt(advance_payment_percentage, 10),
-        parseInt(cancellation_window_hours, 10),
+        parseInt(cancellation_window_hours || 4, 10),
         sport_types_offered
       ]
     );
