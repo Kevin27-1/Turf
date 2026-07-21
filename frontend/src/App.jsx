@@ -937,7 +937,7 @@ export default function App() {
             {currentTab === 'profile' && 'User Dashboard'}
           </span>
           <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">
-            Golden Arm Turf
+            {publicSettings.turf_name}
           </span>
         </header>
       )}
