@@ -136,9 +136,9 @@ function createTextTexture(gl, text, font = 'bold 30px monospace', color = 'blac
   context.font = font;
   context.fillStyle = color;
   context.textBaseline = 'middle';
-  context.textAlign = 'center';
+  context.textAlign = 'left';
   context.clearRect(0, 0, canvas.width, canvas.height);
-  context.fillText(text, canvas.width / 2, canvas.height / 2);
+  context.fillText(text, 10, canvas.height / 2);
   const texture = new Texture(gl, { generateMipmaps: false });
   texture.image = canvas;
   return { texture, width: canvas.width, height: canvas.height };
@@ -185,10 +185,12 @@ class Title {
     });
     this.mesh = new Mesh(this.gl, { geometry, program });
     const aspect = width / height;
-    const textHeight = this.plane.scale.y * 0.15;
+    const textHeight = this.plane.scale.y * 0.12;
     const textWidth = textHeight * aspect;
     this.mesh.scale.set(textWidth, textHeight, 1);
-    this.mesh.position.y = -this.plane.scale.y * 0.5 - textHeight * 0.5 - 0.05;
+    this.mesh.position.x = -this.plane.scale.x * 0.5 + textWidth * 0.5 + 0.05;
+    this.mesh.position.y = -this.plane.scale.y * 0.5 + textHeight * 0.5 + 0.05;
+    this.mesh.position.z = 0.01;
     this.mesh.setParent(this.plane);
   }
 }
