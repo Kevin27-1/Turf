@@ -272,18 +272,26 @@ export default function App() {
   }, [currentTab, reviewsData]);
 
   // Reservation Hold Timer countdown
-
   useEffect(() => {
     if (!holdData || !holdData.heldUntil) return;
     
     const updateTimer = () => {
-      const diff = Math.max(0, Math.floor((new Date(holdData.heldUntil).getTime() - Date.now()) / 1000));
+      const heldUntilTime = new Date(holdData.heldUntil).getTime();
+      const now = Date.now();
+      const diff = Math.max(0, Math.floor((heldUntilTime - now) / 1000));
+      
       setHoldTimeLeft(diff);
-      if (diff === 0) {
-        setBookingError('Reservation hold expired! The slot has been released.');
-        // Refresh slots automatically
-        if (selectedDate && currentTab === 'book') {
-          fetchSlots(selectedDate);
+      
+      if (diff <= 0) {
+        // Automatically close the booking slot modal and release hold state when timer hits 0
+        setSelectedSlot(null);
+        setHoldData(null);
+        setBookingError('');
+        setError('Reservation hold expired! The slot has been released.');
+        
+        // Refresh slots silently without triggering full-screen loading flash
+        if (selectedDate) {
+          fetchSlots(selectedDate, true);
         }
       }
     };
@@ -318,8 +326,8 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [lightboxOpen, lightboxIndex]);
 
-  const fetchSlots = async (dateStr) => {
-    setLoading(true);
+  const fetchSlots = async (dateStr, silent = false) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const res = await fetch(`/api/slots?date=${dateStr}`);
@@ -330,9 +338,11 @@ export default function App() {
       setSlots(data);
     } catch (err) {
       console.error(err);
-      setError('Could not connect to server. Please ensure the backend is running.');
+      if (!silent) {
+        setError('Could not connect to server. Please ensure the backend is running.');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -505,9 +515,9 @@ export default function App() {
     setHoldData(null);
     setBookingError('');
     setBookingLoading(false);
-    // Refresh slots board when closing modal so the user gets up to date status
+    // Refresh slots board silently when closing modal so the user gets up to date status
     if (selectedDate) {
-      fetchSlots(selectedDate);
+      fetchSlots(selectedDate, true);
     }
   };
 
@@ -2421,7 +2431,7 @@ export default function App() {
                 {/* Hold Timer Alert Banner */}
                 <div className="p-2.5 border border-amber-950/60 bg-amber-950/10 text-amber-500 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider">
                   <span className="flex items-center gap-1.5">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Slot held for payment
+                    <Clock className="w-3.5 h-3.5 text-amber-500" /> Slot held for payment
                   </span>
                   <span className="font-mono text-xs">
                     {Math.floor(holdTimeLeft / 60)}:{(holdTimeLeft % 60).toString().padStart(2, '0')}
