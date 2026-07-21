@@ -2554,6 +2554,8 @@ function AdminApp() {
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState(null);
+  const [adminConfirmModal, setAdminConfirmModal] = useState(null);
+  const [settingsError, setSettingsError] = useState('');
   
   // Settings Form State
   const [turfName, setTurfName] = useState('');
@@ -2698,7 +2700,6 @@ function AdminApp() {
   };
 
   const markBalancePaid = async (bookingId) => {
-    if (!confirm('Mark balance payment as paid at venue?')) return;
     setActionLoadingId(bookingId);
     try {
       const res = await fetch(`/api/admin/bookings/${bookingId}/pay-balance`, {
@@ -2725,7 +2726,6 @@ function AdminApp() {
   };
 
   const markCompleted = async (bookingId) => {
-    if (!confirm('Mark booking as completed?')) return;
     setActionLoadingId(bookingId);
     try {
       const res = await fetch(`/api/admin/bookings/${bookingId}/complete`, {
@@ -2752,7 +2752,6 @@ function AdminApp() {
   };
 
   const markNoShow = async (bookingId) => {
-    if (!confirm('Mark player as no-show?')) return;
     setActionLoadingId(bookingId);
     try {
       const res = await fetch(`/api/admin/bookings/${bookingId}/no-show`, {
@@ -2776,6 +2775,36 @@ function AdminApp() {
     } finally {
       setActionLoadingId(null);
     }
+  };
+
+  const requestBalancePaid = (bookingId) => {
+    setAdminConfirmModal({
+      title: 'Collect Balance Payment',
+      message: 'Are you sure you want to mark the balance payment as collected at venue?',
+      actionText: 'Collect Balance',
+      color: 'amber',
+      onConfirm: () => markBalancePaid(bookingId)
+    });
+  };
+
+  const requestCompleted = (bookingId) => {
+    setAdminConfirmModal({
+      title: 'Complete Booking',
+      message: 'Are you sure you want to mark this court booking as completed?',
+      actionText: 'Mark Complete',
+      color: 'green',
+      onConfirm: () => markCompleted(bookingId)
+    });
+  };
+
+  const requestNoShow = (bookingId) => {
+    setAdminConfirmModal({
+      title: 'Player No-Show',
+      message: 'Are you sure you want to mark this player as no-show?',
+      actionText: 'Mark No-Show',
+      color: 'red',
+      onConfirm: () => markNoShow(bookingId)
+    });
   };
 
   const toggleBlockSlot = async (slot, shouldBlock) => {
@@ -2827,6 +2856,7 @@ function AdminApp() {
   const handleSettingsSave = async (e) => {
     e.preventDefault();
     setSettingsSuccess('');
+    setSettingsError('');
     setLoading(true);
     try {
       const res = await fetch('/api/admin/settings', {
@@ -2852,7 +2882,7 @@ function AdminApp() {
         throw new Error(data.error || 'Failed to save settings');
       }
     } catch (err) {
-      alert(err.message);
+      setSettingsError(err.message);
     } finally {
       setLoading(false);
     }
@@ -3032,7 +3062,7 @@ function AdminApp() {
                               {b.balance_payment_status === 'pending' && b.booking_status === 'confirmed' && (
                                 <button
                                   disabled={actionLoadingId === b.id}
-                                  onClick={() => markBalancePaid(b.id)}
+                                  onClick={() => requestBalancePaid(b.id)}
                                   className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-black font-extrabold text-[9px] uppercase tracking-wider rounded-none cursor-pointer"
                                 >
                                   {actionLoadingId === b.id ? 'Saving...' : 'Collect Bal'}
@@ -3042,14 +3072,14 @@ function AdminApp() {
                                 <>
                                   <button
                                     disabled={actionLoadingId === b.id}
-                                    onClick={() => markCompleted(b.id)}
+                                    onClick={() => requestCompleted(b.id)}
                                     className="px-2 py-1 bg-[#22c55e] hover:bg-[#1db252] text-black font-extrabold text-[9px] uppercase tracking-wider rounded-none cursor-pointer"
                                   >
                                     Complete
                                   </button>
                                   <button
                                     disabled={actionLoadingId === b.id}
-                                    onClick={() => markNoShow(b.id)}
+                                    onClick={() => requestNoShow(b.id)}
                                     className="px-2 py-1 bg-red-650 hover:bg-red-800 text-white font-extrabold text-[9px] uppercase tracking-wider rounded-none cursor-pointer"
                                   >
                                     No-Show
@@ -3175,7 +3205,7 @@ function AdminApp() {
                               {selectedSlotDetails.booking.balance_payment_status === 'pending' && (
                                 <button
                                   disabled={actionLoadingId === selectedSlotDetails.id}
-                                  onClick={() => markBalancePaid(selectedSlotDetails.booking.id)}
+                                  onClick={() => requestBalancePaid(selectedSlotDetails.booking.id)}
                                   className="py-2 px-3 bg-amber-500 hover:bg-amber-600 text-black font-bold text-[9px] uppercase tracking-wider cursor-pointer"
                                 >
                                   Collect Balance
@@ -3185,14 +3215,14 @@ function AdminApp() {
                                 <>
                                   <button
                                     disabled={actionLoadingId === selectedSlotDetails.id}
-                                    onClick={() => markCompleted(selectedSlotDetails.booking.id)}
+                                    onClick={() => requestCompleted(selectedSlotDetails.booking.id)}
                                     className="py-2 px-3 bg-[#22c55e] hover:bg-[#1db252] text-black font-bold text-[9px] uppercase tracking-wider cursor-pointer"
                                   >
                                     Complete
                                   </button>
                                   <button
                                     disabled={actionLoadingId === selectedSlotDetails.id}
-                                    onClick={() => markNoShow(selectedSlotDetails.booking.id)}
+                                    onClick={() => requestNoShow(selectedSlotDetails.booking.id)}
                                     className="py-2 px-3 bg-red-650 hover:bg-red-800 text-white font-bold text-[9px] uppercase tracking-wider cursor-pointer"
                                   >
                                     No-Show
@@ -3373,7 +3403,7 @@ function AdminApp() {
                             <td className="p-4 text-right">
                               <button
                                 disabled={actionLoadingId === b.id}
-                                onClick={() => markBalancePaid(b.id)}
+                                onClick={() => requestBalancePaid(b.id)}
                                 className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-black font-extrabold text-[9px] uppercase tracking-wider rounded-none cursor-pointer"
                               >
                                 {actionLoadingId === b.id ? 'Updating...' : 'Collect Cash'}
@@ -3551,6 +3581,48 @@ function AdminApp() {
           </div>
         )}
       </main>
+
+      {/* IN-WEBSITE CONFIRMATION MODAL */}
+      {adminConfirmModal && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-neutral-950 border border-neutral-800 p-6 rounded-none shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-base font-black text-white uppercase tracking-wider mb-2 flex items-center gap-2">
+              <AlertTriangle className={`w-5 h-5 ${
+                adminConfirmModal.color === 'amber' ? 'text-amber-500' :
+                adminConfirmModal.color === 'green' ? 'text-[#22c55e]' : 'text-red-500'
+              }`} />
+              {adminConfirmModal.title}
+            </h3>
+            <p className="text-xs text-neutral-300 font-medium mb-6 leading-relaxed">
+              {adminConfirmModal.message}
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setAdminConfirmModal(null)}
+                className="px-4 py-2 border border-neutral-800 text-neutral-400 hover:text-white font-bold text-xs uppercase tracking-wider rounded-none cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const action = adminConfirmModal.onConfirm;
+                  setAdminConfirmModal(null);
+                  if (action) action();
+                }}
+                className={`px-4 py-2 font-extrabold text-xs uppercase tracking-wider rounded-none cursor-pointer transition ${
+                  adminConfirmModal.color === 'amber' ? 'bg-amber-500 hover:bg-amber-600 text-black' :
+                  adminConfirmModal.color === 'green' ? 'bg-[#22c55e] hover:bg-[#1db252] text-black' :
+                  'bg-red-600 hover:bg-red-700 text-white'
+                }`}
+              >
+                {adminConfirmModal.actionText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
