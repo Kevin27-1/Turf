@@ -2561,6 +2561,7 @@ function AdminApp() {
   const [turfName, setTurfName] = useState('');
   const [hoursStart, setHoursStart] = useState('');
   const [hoursEnd, setHoursEnd] = useState('');
+  const [duration, setDuration] = useState(60);
   const [priceDay, setPriceDay] = useState(1200);
   const [priceNight, setPriceNight] = useState(1500);
   const [advancePct, setAdvancePct] = useState(40);
