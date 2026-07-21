@@ -88,7 +88,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState('home'); // 'home', 'book', 'passes', 'profile'
   const [profileSub, setProfileSub] = useState(null); // null, 'edit', 'faq', 'settings', 'help', 'cancel-board', 'invite', 'rate'
   const [publicSettings, setPublicSettings] = useState({
-    turf_name: 'Golden Arm Turf',
+    turf_name: 'Naduparambil Turf',
     sport_types_offered: ['Football', 'Cricket']
   });
 
