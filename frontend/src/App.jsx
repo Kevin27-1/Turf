@@ -3544,11 +3544,13 @@ function AdminApp() {
                           return (
                             <div className="pt-4">
                               {/* Graph Bars Container */}
-                              <div className="h-48 flex items-end justify-between gap-1 sm:gap-1.5 border-b border-neutral-800 pb-2 overflow-x-auto">
+                              <div className="h-48 w-full flex items-end justify-between gap-1 border-b border-neutral-800 pb-2">
                                 {stats.monthlyDailyEarnings.map((item, idx) => {
-                                  const heightPct = maxAmount > 0 ? Math.max((item.amount / maxAmount) * 100, 4) : 4;
+                                  const heightPct = maxAmount > 0 ? Math.round((item.amount / maxAmount) * 100) : 0;
+                                  // Minimum visible height of 6px if 0 earnings, or heightPct% if > 0
+                                  const barHeightStyle = item.amount > 0 ? `${Math.max(heightPct, 6)}%` : '6px';
                                   return (
-                                    <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[14px]">
+                                    <div key={idx} className="flex-1 h-full flex flex-col justify-end items-center group relative">
                                       {/* Tooltip */}
                                       <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-8 bg-neutral-900 border border-neutral-700 text-white text-[9px] font-mono font-bold px-1.5 py-0.5 z-20 whitespace-nowrap pointer-events-none">
                                         {item.label}: ₹{item.amount}
@@ -3556,8 +3558,8 @@ function AdminApp() {
 
                                       {/* Bar */}
                                       <div 
-                                        style={{ height: `${heightPct}%` }}
-                                        className={`w-full transition-all duration-300 ${item.amount > 0 ? 'bg-[#22c55e] hover:bg-[#1db252] shadow-[0_0_8px_rgba(34,197,94,0.3)]' : 'bg-neutral-900/60'}`}
+                                        style={{ height: barHeightStyle }}
+                                        className={`w-full transition-all duration-300 rounded-xs ${item.amount > 0 ? 'bg-[#22c55e] hover:bg-[#1db252] shadow-[0_0_10px_rgba(34,197,94,0.4)]' : 'bg-neutral-800/80 hover:bg-neutral-700'}`}
                                       ></div>
                                     </div>
                                   );
