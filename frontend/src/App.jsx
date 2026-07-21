@@ -973,7 +973,7 @@ export default function App() {
               )}
               {(() => {
                 const nameParts = publicSettings.turf_name.split(' ');
-                const firstName = nameParts[0] || 'Naduparabil';
+                const firstName = nameParts[0] || 'Naduparambil';
                 const lastName = nameParts.slice(1).join(' ') || 'Turf';
                 return (
                   <>
@@ -1011,7 +1011,7 @@ export default function App() {
               )}
               {(() => {
                 const nameParts = publicSettings.turf_name.split(' ');
-                const firstName = nameParts[0] || 'Naduparabil';
+                const firstName = nameParts[0] || 'Naduparambil';
                 const lastName = nameParts.slice(1).join(' ') || 'Turf';
                 return (
                   <>
