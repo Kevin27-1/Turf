@@ -463,7 +463,11 @@ export default function App() {
       const token = localStorage.getItem('jwt_token');
       if (!token) throw new Error('Please log in to book a slot.');
 
-      const deviceType = window.innerWidth >= 768 ? 'desktop' : 'mobile';
+      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isNarrow = window.innerWidth < 768;
+
+      const deviceType = (isTouchDevice && isNarrow) || isMobileUA ? 'mobile' : 'desktop';
 
       const res = await fetch('/api/bookings/hold', {
         method: 'POST',
