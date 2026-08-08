@@ -517,6 +517,26 @@ export const query = async (text, params = []) => {
         await firestoreDb.collection('bookings').doc(params[0]).delete();
         return { rows: [] };
       }
+
+      // 10b. DELETE FROM slots WHERE status = 'available' AND date >= $1
+      if (trimmedText.startsWith('DELETE FROM slots')) {
+        const snap = await firestoreDb.collection('slots')
+          .where('status', '==', 'available')
+          .get();
+        const batch = firestoreDb.batch();
+        let count = 0;
+        snap.docs.forEach(doc => {
+          const data = doc.data();
+          if (data.date >= params[0]) {
+            batch.delete(doc.ref);
+            count++;
+          }
+        });
+        if (count > 0) {
+          await batch.commit();
+        }
+        return { rows: [] };
+      }
       
       // 11. SELECT b.id, b.slot_id, b.created_at, b.user_id, u.name as customer_name, u.phone as customer_phone, ... WHERE b.user_id = $1
       if (trimmedText.includes('FROM bookings b') && trimmedText.includes('b.user_id = $1')) {

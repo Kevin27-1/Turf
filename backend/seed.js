@@ -5,11 +5,8 @@ export async function ensureSlotsForDate(dateStr) {
   if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return 0;
 
   try {
-    const checkRes = await query('SELECT COUNT(*) as count FROM slots WHERE date = $1', [dateStr]);
-    const count = parseInt(checkRes.rows[0]?.count ?? checkRes.rows[0]?.['COUNT(*)'] ?? 0, 10);
-    if (count > 0) {
-      return 0; // Slots already exist
-    }
+    const existingSlotsRes = await query('SELECT start_time FROM slots WHERE date = $1', [dateStr]);
+    const existingStartTimes = new Set((existingSlotsRes.rows || []).map(r => r.start_time));
 
     let settings = {
       operating_hours_start: '06:00',
@@ -42,6 +39,11 @@ export async function ensureSlotsForDate(dateStr) {
 
       const start_time = `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
       const end_time = `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`;
+
+      if (existingStartTimes.has(start_time)) {
+        continue;
+      }
+
       const slotPrice = (start_time >= '06:00' && start_time < '19:00') ? priceDay : priceNight;
       const slotId = crypto.randomUUID();
 
@@ -62,9 +64,13 @@ export async function seedSlots() {
   console.log('Starting slots seeding...');
   let totalSeeded = 0;
 
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const [ty, tm, td] = todayStr.split('-').map(Number);
+  const baseDate = new Date(ty, tm - 1, td, 12, 0, 0);
+
   for (let i = 0; i < 14; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
+    const d = new Date(baseDate);
+    d.setDate(baseDate.getDate() + i);
 
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');

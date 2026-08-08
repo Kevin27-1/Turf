@@ -832,7 +832,9 @@ app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
     `);
     const bookings = bookingsRes.rows;
 
-    const today = new Date();
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const [ty, tm, td] = todayStr.split('-').map(Number);
+    const today = new Date(ty, tm - 1, td, 12, 0, 0, 0);
     
     // Calculate week start (Monday) and end (Sunday) in local time
     const currentDay = today.getDay();

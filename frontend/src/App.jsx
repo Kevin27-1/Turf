@@ -2558,6 +2558,7 @@ function AdminApp() {
   const [priceDay, setPriceDay] = useState(1200);
   const [priceNight, setPriceNight] = useState(1500);
   const [advancePct, setAdvancePct] = useState(40);
+  const [cancelHours, setCancelHours] = useState(4);
   const [sports, setSports] = useState('');
   const [settingsSuccess, setSettingsSuccess] = useState('');
 
@@ -2590,10 +2591,19 @@ function AdminApp() {
     }
   };
 
+  const checkAuthStatus = (res) => {
+    if (res.status === 401) {
+      handleAdminSignOut();
+      return false;
+    }
+    return true;
+  };
+
   const fetchBookingsToday = async () => {
     const res = await fetch(`/api/admin/bookings?date=${todayDate}`, {
       headers: { 'Authorization': `Bearer ${adminToken}` }
     });
+    if (!checkAuthStatus(res)) return;
     if (res.ok) {
       const data = await res.json();
       setBookings(data);
@@ -2609,6 +2619,7 @@ function AdminApp() {
     const bRes = await fetch(`/api/admin/bookings?date=${calendarDate}`, {
       headers: { 'Authorization': `Bearer ${adminToken}` }
     });
+    if (!checkAuthStatus(bRes)) return;
     if (bRes.ok) {
       const bData = await bRes.json();
       setBookings(bData);
@@ -2628,18 +2639,18 @@ function AdminApp() {
     const res = await fetch('/api/admin/bookings?balance_payment_status=pending&booking_status=confirmed', {
       headers: { 'Authorization': `Bearer ${adminToken}` }
     });
+    if (!checkAuthStatus(res)) return;
     if (res.ok) {
       const data = await res.json();
       setBookings(data);
     }
   };
 
-
-
   const fetchSettings = async () => {
     const res = await fetch('/api/admin/settings', {
       headers: { 'Authorization': `Bearer ${adminToken}` }
     });
+    if (!checkAuthStatus(res)) return;
     if (res.ok) {
       const data = await res.json();
       setSettings(data);
@@ -2650,6 +2661,7 @@ function AdminApp() {
       setPriceDay(data.price_per_slot_day ?? data.price_per_slot ?? 1200);
       setPriceNight(data.price_per_slot_night ?? data.price_per_slot ?? 1500);
       setAdvancePct(data.advance_payment_percentage);
+      setCancelHours(data.cancellation_window_hours ?? 4);
       setSports(data.sport_types_offered);
       setSettingsSuccess('');
     }
@@ -2659,6 +2671,7 @@ function AdminApp() {
     const res = await fetch('/api/admin/stats', {
       headers: { 'Authorization': `Bearer ${adminToken}` }
     });
+    if (!checkAuthStatus(res)) return;
     if (res.ok) {
       const data = await res.json();
       setStats(data);
@@ -2691,7 +2704,6 @@ function AdminApp() {
   const handleAdminSignOut = () => {
     localStorage.removeItem('admin_token');
     setAdminToken(null);
-    window.location.reload();
   };
 
   const markBalancePaid = async (bookingId) => {
@@ -2876,6 +2888,7 @@ function AdminApp() {
           price_per_slot_day: priceDay,
           price_per_slot_night: priceNight,
           advance_payment_percentage: advancePct,
+          cancellation_window_hours: cancelHours,
           sport_types_offered: sports
         })
       });
@@ -3533,6 +3546,19 @@ function AdminApp() {
                         max={100}
                         value={advancePct}
                         onChange={(e) => setAdvancePct(parseInt(e.target.value, 10))}
+                        className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Cancellation Window (Hours)</label>
+                      <input
+                        type="number"
+                        required
+                        min={0}
+                        max={72}
+                        value={cancelHours}
+                        onChange={(e) => setCancelHours(parseInt(e.target.value, 10))}
                         className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
                       />
                     </div>
