@@ -2526,14 +2526,7 @@ function AdminApp() {
 
   // Today Tab Date
   const getISTTodayDateString = () => {
-    const d = new Date();
-    // Convert to IST (UTC +5:30)
-    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
-    const nd = new Date(utc + (3600000 * 5.5));
-    const year = nd.getFullYear();
-    const month = String(nd.getMonth() + 1).padStart(2, '0');
-    const day = String(nd.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   };
 
   const [todayDate, setTodayDate] = useState(getISTTodayDateString());
@@ -2824,9 +2817,13 @@ function AdminApp() {
       if (res.ok) {
         await loadTabData();
         setSelectedSlotDetails(null);
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to update slot block status');
       }
     } catch (err) {
       console.error(err);
+      alert('Error updating slot status');
     } finally {
       setActionLoadingId(null);
     }
@@ -2847,9 +2844,13 @@ function AdminApp() {
       });
       if (res.ok) {
         await loadTabData();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to update selected slots');
       }
     } catch (err) {
       console.error(err);
+      alert('Error updating selected slots');
     } finally {
       setLoading(false);
     }
@@ -2880,6 +2881,8 @@ function AdminApp() {
       });
       if (res.ok) {
         setSettingsSuccess('Settings updated successfully!');
+        await fetchSettings();
+        await loadTabData();
         fetch('/api/settings/public').then(r => r.json()).then(data => setPublicSettings(data)).catch(() => {});
         if (selectedDate) fetchSlots(selectedDate, true);
         if (calendarDate) fetchCalendarSlots();
@@ -3656,7 +3659,8 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
     
     // Default to last date in dataset or today
     const lastDateStr = rawChartData[rawChartData.length - 1]?.date || new Date().toISOString().split('T')[0];
-    const referenceDate = new Date(lastDateStr);
+    const [ly, lm, ld] = lastDateStr.split('-').map(Number);
+    const referenceDate = new Date(ly, lm - 1, ld, 12, 0, 0);
 
     let daysToSubtract = 30;
     if (timeRange === "90d") daysToSubtract = 90;
@@ -3666,7 +3670,9 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
     startDate.setDate(startDate.getDate() - daysToSubtract);
 
     return rawChartData.filter((item) => {
-      const d = new Date(item.date);
+      const [iy, im, id] = (item.date || '').split('-').map(Number);
+      if (!iy || !im || !id) return false;
+      const d = new Date(iy, im - 1, id, 12, 0, 0);
       return d >= startDate;
     });
   }, [rawChartData, timeRange]);
@@ -3719,8 +3725,10 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
                   minTickGap={24}
                   tick={{ fill: '#737373', fontSize: 10, fontWeight: 700 }}
                   tickFormatter={(value) => {
-                    const d = new Date(value);
-                    return d.toLocaleDateString("en-US", {
+                    const [y, m, d] = (value || '').split('-').map(Number);
+                    if (!y || !m || !d) return value;
+                    const dateObj = new Date(y, m - 1, d);
+                    return dateObj.toLocaleDateString("en-US", {
                       month: "short",
                       day: "numeric",
                     });
@@ -3731,12 +3739,13 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
                   cursor={{ stroke: '#525252', strokeWidth: 1 }}
                   content={({ active, payload, label }) => {
                     if (active && payload && payload.length) {
-                      const formattedDate = new Date(label).toLocaleDateString("en-US", {
+                      const [y, m, d] = (label || '').split('-').map(Number);
+                      const formattedDate = (y && m && d) ? new Date(y, m - 1, d).toLocaleDateString("en-US", {
                         weekday: "short",
                         month: "short",
                         day: "numeric",
                         year: "numeric"
-                      });
+                      }) : label;
                       const revAmt = payload[0]?.value || 0;
 
                       return (

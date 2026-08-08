@@ -8,7 +8,7 @@ import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import Razorpay from 'razorpay';
 import { query, getDbEngine, getDbDiagnostics } from './db.js';
-import { seedSlots } from './seed.js';
+import { seedSlots, ensureSlotsForDate } from './seed.js';
 import { authenticateUser } from './auth.js';
 
 dotenv.config();
@@ -208,6 +208,7 @@ app.get('/api/slots', async (req, res) => {
   try {
     // Check and revert any expired holds before showing slots to user
     await revertExpiredHolds();
+    await ensureSlotsForDate(date);
 
     const slotsRes = await query(
       'SELECT id, date, start_time, end_time, status, price, held_until, held_by_user_id FROM slots WHERE date = $1 ORDER BY start_time',
@@ -653,9 +654,11 @@ app.put('/api/admin/settings', authenticateAdmin, async (req, res) => {
       ]
     );
 
-    // Update prices for existing available slots
-    await query("UPDATE slots SET price = $1 WHERE status = 'available' AND start_time >= '06:00' AND start_time < '19:00'", [priceDayNum]);
-    await query("UPDATE slots SET price = $1 WHERE status = 'available' AND (start_time >= '19:00' OR start_time < '06:00')", [priceNightNum]);
+    // Delete unbooked available slots for today and future dates to apply new settings & hours
+    const d = new Date();
+    const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    await query("DELETE FROM slots WHERE status = 'available' AND date >= $1", [todayStr]);
+    await seedSlots();
 
     res.json({ success: true, message: 'Admin settings updated successfully' });
   } catch (err) {
@@ -673,6 +676,7 @@ app.get('/api/admin/bookings', authenticateAdmin, async (req, res) => {
     let params = [];
 
     if (date) {
+      await ensureSlotsForDate(date);
       // Today's Bookings
       sql = `
         SELECT b.id, b.slot_id, b.created_at, b.user_id,
@@ -955,8 +959,13 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', db: getDbEngine(), diagnostics: getDbDiagnostics() });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Backend server running on port ${PORT}`);
+  try {
+    await seedSlots();
+  } catch (err) {
+    console.error('Error during initial startup slot seeding:', err);
+  }
 });
 
 export default app;
