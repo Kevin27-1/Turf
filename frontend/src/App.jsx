@@ -718,11 +718,15 @@ export default function App() {
       }
 
       const fullPhone = `+91${cleanPhone}`;
-      if (!window.recaptchaVerifier) {
-        window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-          'size': 'invisible'
-        });
+      if (window.recaptchaVerifier) {
+        try {
+          window.recaptchaVerifier.clear();
+        } catch (e) {}
+        window.recaptchaVerifier = null;
       }
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        'size': 'invisible'
+      });
 
       const confirmation = await signInWithPhoneNumber(auth, fullPhone, window.recaptchaVerifier);
       setConfirmationResult(confirmation);
@@ -890,11 +894,15 @@ export default function App() {
       }
 
       const fullPhone = `+91${cleanPhone}`;
-      if (!window.recaptchaVerifier) {
-        window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-          'size': 'invisible'
-        });
+      if (window.recaptchaVerifier) {
+        try {
+          window.recaptchaVerifier.clear();
+        } catch (e) {}
+        window.recaptchaVerifier = null;
       }
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        'size': 'invisible'
+      });
 
       const confirmation = await signInWithPhoneNumber(auth, fullPhone, window.recaptchaVerifier);
       setConfirmationResult(confirmation);
