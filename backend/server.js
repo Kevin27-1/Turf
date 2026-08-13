@@ -94,9 +94,30 @@ function resetRateLimit(phone) {
   loginAttempts.delete(phone);
 }
 
-// POST /api/auth/signup (Register new user with Name, Phone, and Password)
+// POST /api/auth/signup/check-phone (Verify phone availability before OTP)
+app.post('/api/auth/signup/check-phone', async (req, res) => {
+  const { phone } = req.body;
+  if (!phone || !phone.trim()) {
+    return res.status(400).json({ error: 'Phone number is required' });
+  }
+
+  const cleanPhone = phone.replace(/^\+91/, '').replace(/\D/g, '');
+
+  try {
+    const userCheck = await query('SELECT id FROM users WHERE phone = $1', [cleanPhone]);
+    if (userCheck.rows.length > 0) {
+      return res.status(400).json({ error: 'Phone number is already registered. Please log in instead.' });
+    }
+    res.json({ success: true, available: true });
+  } catch (err) {
+    console.error('Failed to check phone availability:', err);
+    res.status(500).json({ error: 'Failed to verify phone number availability' });
+  }
+});
+
+// POST /api/auth/signup (Register new user with Name, Phone, Password, and verified Firebase OTP Token)
 app.post('/api/auth/signup', async (req, res) => {
-  const { name, phone, password } = req.body;
+  const { name, phone, password, firebaseToken } = req.body;
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'Full name is required' });
   }
@@ -106,10 +127,25 @@ app.post('/api/auth/signup', async (req, res) => {
   if (!password || password.length < 8) {
     return res.status(400).json({ error: 'Password must be at least 8 characters long' });
   }
+  if (!firebaseToken) {
+    return res.status(400).json({ error: 'Phone OTP verification is required' });
+  }
 
   const cleanPhone = phone.replace(/^\+91/, '').replace(/\D/g, '');
 
   try {
+    // 1. Verify Firebase ID token for phone OTP verification
+    const decodedToken = await getAuth().verifyIdToken(firebaseToken);
+    const phoneWithCode = decodedToken.phone_number;
+    if (!phoneWithCode) {
+      return res.status(400).json({ error: 'Firebase phone verification code invalid' });
+    }
+    const firebaseCleanPhone = phoneWithCode.replace(/^\+91/, '').replace(/\D/g, '');
+    if (firebaseCleanPhone !== cleanPhone) {
+      return res.status(400).json({ error: 'Verified phone number does not match request phone number' });
+    }
+
+    // 2. Double check phone uniqueness
     const userCheck = await query('SELECT id FROM users WHERE phone = $1', [cleanPhone]);
     if (userCheck.rows.length > 0) {
       return res.status(400).json({ error: 'Phone number is already registered. Please log in instead.' });
@@ -130,7 +166,7 @@ app.post('/api/auth/signup', async (req, res) => {
     res.status(201).json({ success: true, user, token });
   } catch (err) {
     console.error('Failed to sign up user:', err);
-    res.status(500).json({ error: 'Failed to complete user registration' });
+    res.status(500).json({ error: 'Failed to verify phone OTP or complete registration: ' + err.message });
   }
 });
 

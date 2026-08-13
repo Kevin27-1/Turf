@@ -113,6 +113,7 @@ export default function App() {
   const [user, setUser] = useState(null); // Contains { id, name, phone }
   const [authLoading, setAuthLoading] = useState(true);
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup' | 'forgot'
+  const [signupStep, setSignupStep] = useState('details'); // 'details' | 'otp'
   const [forgotStep, setForgotStep] = useState('phone'); // 'phone' | 'otp' | 'reset'
   
   // Auth Form Fields
@@ -681,7 +682,7 @@ export default function App() {
 
 
 
-  const handleSignUp = async (e) => {
+  const handleSendSignUpOtp = async (e) => {
     e.preventDefault();
     setAuthFormError('');
     setAuthFormSuccess('');
@@ -690,7 +691,8 @@ export default function App() {
       setAuthFormError('Full name is required');
       return;
     }
-    if (!authPhone.trim() || authPhone.replace(/\D/g, '').length < 10) {
+    const cleanPhone = authPhone.replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
       setAuthFormError('Please enter a valid 10-digit phone number');
       return;
     }
@@ -705,13 +707,70 @@ export default function App() {
 
     setAuthFormLoading(true);
     try {
+      const checkRes = await fetch('/api/auth/signup/check-phone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: cleanPhone })
+      });
+      const checkData = await checkRes.json();
+      if (!checkRes.ok) {
+        throw new Error(checkData.error || 'Phone number is already registered');
+      }
+
+      const fullPhone = `+91${cleanPhone}`;
+      if (!window.recaptchaVerifier) {
+        window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+          'size': 'invisible'
+        });
+      }
+
+      const confirmation = await signInWithPhoneNumber(auth, fullPhone, window.recaptchaVerifier);
+      setConfirmationResult(confirmation);
+      setSignupStep('otp');
+      setAuthOtpCode('');
+      setAuthFormSuccess(`Verification OTP sent to +91 ${cleanPhone}`);
+    } catch (err) {
+      console.error('Send signup OTP failed:', err);
+      let errMsg = err.message;
+      if (err.code === 'auth/operation-not-allowed') {
+        errMsg = 'Phone auth is disabled. Enable it in your Firebase console under Authentication > Sign-in method.';
+      } else if (err.code === 'auth/invalid-phone-number') {
+        errMsg = 'Invalid phone number format. Enter a 10-digit number.';
+      }
+      setAuthFormError(errMsg);
+    } finally {
+      setAuthFormLoading(false);
+    }
+  };
+
+  const handleVerifySignUpOtp = async (e) => {
+    e.preventDefault();
+    setAuthFormError('');
+    setAuthFormSuccess('');
+
+    if (!authOtpCode.trim() || authOtpCode.length !== 6) {
+      setAuthFormError('Please enter a valid 6-digit OTP code');
+      return;
+    }
+    if (!confirmationResult) {
+      setAuthFormError('Verification session expired. Please go back and try again.');
+      setSignupStep('details');
+      return;
+    }
+
+    setAuthFormLoading(true);
+    try {
+      const result = await confirmationResult.confirm(authOtpCode);
+      const firebaseToken = await result.user.getIdToken();
+
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: authName.trim(),
           phone: authPhone.replace(/\D/g, ''),
-          password: authPassword
+          password: authPassword,
+          firebaseToken
         })
       });
       const data = await res.json();
@@ -733,10 +792,18 @@ export default function App() {
       setAuthPhone('');
       setAuthPassword('');
       setAuthConfirmPassword('');
+      setAuthOtpCode('');
+      setSignupStep('details');
       setProfileSub(null);
     } catch (err) {
       console.error('Sign up error:', err);
-      setAuthFormError(err.message || 'Sign up failed');
+      let errMsg = err.message;
+      if (err.code === 'auth/invalid-verification-code') {
+        errMsg = 'Invalid verification code. Please check the 6-digit OTP and try again.';
+      } else if (err.code === 'auth/code-expired') {
+        errMsg = 'Verification code has expired. Please resend OTP.';
+      }
+      setAuthFormError(errMsg);
     } finally {
       setAuthFormLoading(false);
     }
@@ -1940,111 +2007,165 @@ export default function App() {
 
               {/* SIGN UP FORM */}
               {authMode === 'signup' && (
-                <form onSubmit={handleSignUp} className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Full Name</label>
-                    <input 
-                      type="text" 
-                      required
-                      value={authName}
-                      onChange={(e) => setAuthName(e.target.value)}
-                      placeholder="John Doe" 
-                      className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 text-xs focus:border-[#22c55e] focus:outline-none transition"
-                    />
-                  </div>
+                <>
+                  {signupStep === 'details' && (
+                    <form onSubmit={handleSendSignUpOtp} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Full Name</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={authName}
+                          onChange={(e) => setAuthName(e.target.value)}
+                          placeholder="John Doe" 
+                          className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 text-xs focus:border-[#22c55e] focus:outline-none transition"
+                        />
+                      </div>
 
-                  <div className="space-y-1.5">
-                    <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Phone Number</label>
-                    <div className="relative">
-                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-neutral-500 text-xs font-bold">+91</span>
-                      <input 
-                        type="tel" 
-                        required
-                        value={authPhone}
-                        onChange={(e) => setAuthPhone(e.target.value.replace(/\D/g, ''))}
-                        placeholder="9876543210" 
-                        maxLength={10}
-                        className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pl-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
-                      />
-                    </div>
-                  </div>
+                      <div className="space-y-1.5">
+                        <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Phone Number</label>
+                        <div className="relative">
+                          <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-neutral-500 text-xs font-bold">+91</span>
+                          <input 
+                            type="tel" 
+                            required
+                            value={authPhone}
+                            onChange={(e) => setAuthPhone(e.target.value.replace(/\D/g, ''))}
+                            placeholder="9876543210" 
+                            maxLength={10}
+                            className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pl-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
+                          />
+                        </div>
+                      </div>
 
-                  <div className="space-y-1.5">
-                    <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Password <span className="text-[8px] text-neutral-500 font-normal">(Min 8 chars)</span></label>
-                    <div className="relative">
-                      <input 
-                        type={showPassword ? 'text' : 'password'} 
-                        required
-                        minLength={8}
-                        value={authPassword}
-                        onChange={(e) => setAuthPassword(e.target.value)}
-                        placeholder="Create password (8+ characters)" 
-                        className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pr-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-500 hover:text-white cursor-pointer"
+                      <div className="space-y-1.5">
+                        <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Password <span className="text-[8px] text-neutral-500 font-normal">(Min 8 chars)</span></label>
+                        <div className="relative">
+                          <input 
+                            type={showPassword ? 'text' : 'password'} 
+                            required
+                            minLength={8}
+                            value={authPassword}
+                            onChange={(e) => setAuthPassword(e.target.value)}
+                            placeholder="Create password (8+ characters)" 
+                            className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pr-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-500 hover:text-white cursor-pointer"
+                          >
+                            {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Confirm Password</label>
+                        <div className="relative">
+                          <input 
+                            type={showConfirmPassword ? 'text' : 'password'} 
+                            required
+                            minLength={8}
+                            value={authConfirmPassword}
+                            onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                            placeholder="Re-enter password to confirm" 
+                            className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pr-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-500 hover:text-white cursor-pointer"
+                          >
+                            {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <button 
+                        type="submit" 
+                        disabled={authFormLoading}
+                        className="w-full bg-[#22c55e] text-black font-black uppercase text-xs p-4 flex items-center justify-center gap-2 hover:bg-[#1db252] disabled:bg-neutral-850 disabled:text-neutral-500 transition cursor-pointer shadow-[2px_2px_0px_#000]"
                       >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        {authFormLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Checking & Sending OTP...
+                          </>
+                        ) : (
+                          'Verify Phone Number (Send OTP)'
+                        )}
                       </button>
-                    </div>
-                  </div>
 
-                  <div className="space-y-1.5">
-                    <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Confirm Password</label>
-                    <div className="relative">
-                      <input 
-                        type={showConfirmPassword ? 'text' : 'password'} 
-                        required
-                        minLength={8}
-                        value={authConfirmPassword}
-                        onChange={(e) => setAuthConfirmPassword(e.target.value)}
-                        placeholder="Re-enter password to confirm" 
-                        className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pr-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-500 hover:text-white cursor-pointer"
+                      <p className="text-center text-[9px] text-neutral-500 uppercase font-bold tracking-wider mt-2">
+                        For test numbers, use fixed OTP 123456
+                      </p>
+
+                      <div className="text-center pt-2 border-t border-neutral-900">
+                        <p className="text-xs text-neutral-400">
+                          Already have an account?{' '}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthMode('login');
+                              setAuthFormError('');
+                              setAuthFormSuccess('');
+                            }}
+                            className="text-[#22c55e] font-bold underline cursor-pointer"
+                          >
+                            Log In
+                          </button>
+                        </p>
+                      </div>
+                    </form>
+                  )}
+
+                  {signupStep === 'otp' && (
+                    <form onSubmit={handleVerifySignUpOtp} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">6-Digit Verification OTP</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={authOtpCode}
+                          onChange={(e) => setAuthOtpCode(e.target.value.replace(/\D/g, ''))}
+                          placeholder="123456" 
+                          maxLength={6}
+                          className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 text-xs tracking-[0.75em] text-center focus:border-[#22c55e] focus:outline-none transition"
+                        />
+                      </div>
+
+                      <button 
+                        type="submit" 
+                        disabled={authFormLoading}
+                        className="w-full bg-[#22c55e] text-black font-black uppercase text-xs p-4 flex items-center justify-center gap-2 hover:bg-[#1db252] disabled:bg-neutral-850 disabled:text-neutral-500 transition cursor-pointer shadow-[2px_2px_0px_#000]"
                       >
-                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        {authFormLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Verifying & Creating Account...
+                          </>
+                        ) : (
+                          'Verify OTP & Complete Sign Up'
+                        )}
                       </button>
-                    </div>
-                  </div>
 
-                  <button 
-                    type="submit" 
-                    disabled={authFormLoading}
-                    className="w-full bg-[#22c55e] text-black font-black uppercase text-xs p-4 flex items-center justify-center gap-2 hover:bg-[#1db252] disabled:bg-neutral-850 disabled:text-neutral-500 transition cursor-pointer shadow-[2px_2px_0px_#000]"
-                  >
-                    {authFormLoading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Creating Account...
-                      </>
-                    ) : (
-                      'Sign Up'
-                    )}
-                  </button>
-
-                  <div className="text-center pt-2 border-t border-neutral-900">
-                    <p className="text-xs text-neutral-400">
-                      Already have an account?{' '}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAuthMode('login');
-                          setAuthFormError('');
-                          setAuthFormSuccess('');
-                        }}
-                        className="text-[#22c55e] font-bold underline cursor-pointer"
-                      >
-                        Log In
-                      </button>
-                    </p>
-                  </div>
-                </form>
+                      <div className="text-center pt-2">
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            setSignupStep('details');
+                            setAuthFormError('');
+                            setAuthFormSuccess('');
+                          }}
+                          className="text-xs text-neutral-400 hover:text-white underline cursor-pointer"
+                        >
+                          Change Registration Details / Phone
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </>
               )}
 
               {/* FORGOT PASSWORD FLOW */}
