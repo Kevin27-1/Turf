@@ -27,7 +27,9 @@ import {
   Lock,
   Mail,
   X,
-  ChevronLeft
+  ChevronLeft,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 // Format date to local YYYY-MM-DD string
@@ -82,11 +84,6 @@ const formatDateDisplayLong = (dateStr) => {
 };
 
 export default function App() {
-  const isAdminPath = window.location.pathname === '/admin';
-  if (isAdminPath) {
-    return <AdminApp />;
-  }
-
   const [currentTab, setCurrentTab] = useState('home'); // 'home', 'book', 'passes', 'profile'
   const [profileSub, setProfileSub] = useState(null); // null, 'edit', 'faq', 'settings', 'help', 'cancel-board', 'invite', 'rate'
   const [publicSettings, setPublicSettings] = useState({
@@ -112,16 +109,30 @@ export default function App() {
       .catch(err => console.error('Failed to load reviews:', err));
   }, []);
 
-  // Custom Phone OTP Auth State
+  // Customer Auth State
   const [user, setUser] = useState(null); // Contains { id, name, phone }
   const [authLoading, setAuthLoading] = useState(true);
-  const [otpStep, setOtpStep] = useState('phone'); // 'phone', 'otp', 'register'
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [otpCode, setOtpCode] = useState('');
-  const [userNameInput, setUserNameInput] = useState('');
+  const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup' | 'forgot'
+  const [forgotStep, setForgotStep] = useState('phone'); // 'phone' | 'otp' | 'reset'
+  
+  // Auth Form Fields
+  const [authName, setAuthName] = useState('');
+  const [authPhone, setAuthPhone] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authConfirmPassword, setAuthConfirmPassword] = useState('');
+  const [authNewPassword, setAuthNewPassword] = useState('');
+  const [authOtpCode, setAuthOtpCode] = useState('');
+  
+  // Show / Hide Password Toggles
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+
   const [authFormLoading, setAuthFormLoading] = useState(false);
   const [authFormError, setAuthFormError] = useState('');
+  const [authFormSuccess, setAuthFormSuccess] = useState('');
   const [confirmationResult, setConfirmationResult] = useState(null);
+  const [verifiedFirebaseToken, setVerifiedFirebaseToken] = useState(null);
   
   const [dates, setDates] = useState([]);
   const [selectedDate, setSelectedDate] = useState('');
@@ -670,19 +681,148 @@ export default function App() {
 
 
 
-  const handleRequestOtp = async (e) => {
+  const handleSignUp = async (e) => {
     e.preventDefault();
     setAuthFormError('');
-    if (!phoneNumber.trim()) {
+    setAuthFormSuccess('');
+
+    if (!authName.trim()) {
+      setAuthFormError('Full name is required');
+      return;
+    }
+    if (!authPhone.trim() || authPhone.replace(/\D/g, '').length < 10) {
+      setAuthFormError('Please enter a valid 10-digit phone number');
+      return;
+    }
+    if (authPassword.length < 8) {
+      setAuthFormError('Password must be at least 8 characters long');
+      return;
+    }
+    if (authPassword !== authConfirmPassword) {
+      setAuthFormError('Passwords do not match');
+      return;
+    }
+
+    setAuthFormLoading(true);
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: authName.trim(),
+          phone: authPhone.replace(/\D/g, ''),
+          password: authPassword
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to complete sign up');
+      }
+
+      localStorage.setItem('jwt_token', data.token);
+      localStorage.setItem('user_profile', JSON.stringify(data.user));
+      setUser(data.user);
+      setProfile({
+        name: data.user.name,
+        email: '',
+        phone: data.user.phone
+      });
+      setMyBookings([]);
+
+      setAuthName('');
+      setAuthPhone('');
+      setAuthPassword('');
+      setAuthConfirmPassword('');
+      setProfileSub(null);
+    } catch (err) {
+      console.error('Sign up error:', err);
+      setAuthFormError(err.message || 'Sign up failed');
+    } finally {
+      setAuthFormLoading(false);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthFormError('');
+    setAuthFormSuccess('');
+
+    if (!authPhone.trim()) {
       setAuthFormError('Phone number is required');
       return;
     }
+    if (!authPassword) {
+      setAuthFormError('Password is required');
+      return;
+    }
+
     setAuthFormLoading(true);
     try {
-      // Format with +91 country code if not specified
-      const fullPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: authPhone.replace(/\D/g, ''),
+          password: authPassword
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Login failed');
+      }
 
-      // Initialize recaptcha container and verifier if not already present
+      localStorage.setItem('jwt_token', data.token);
+      localStorage.setItem('user_profile', JSON.stringify(data.user));
+      setUser(data.user);
+      setProfile({
+        name: data.user.name,
+        email: '',
+        phone: data.user.phone
+      });
+
+      const bookingsRes = await fetch('/api/bookings', {
+        headers: { 'Authorization': `Bearer ${data.token}` }
+      });
+      if (bookingsRes.ok) {
+        const bookingsData = await bookingsRes.json();
+        setMyBookings(bookingsData);
+      }
+
+      setAuthPhone('');
+      setAuthPassword('');
+      setProfileSub(null);
+    } catch (err) {
+      console.error('Login error:', err);
+      setAuthFormError(err.message || 'Login failed');
+    } finally {
+      setAuthFormLoading(false);
+    }
+  };
+
+  const handleSendResetOtp = async (e) => {
+    e.preventDefault();
+    setAuthFormError('');
+    setAuthFormSuccess('');
+
+    const cleanPhone = authPhone.replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 10) {
+      setAuthFormError('Please enter a valid 10-digit phone number');
+      return;
+    }
+
+    setAuthFormLoading(true);
+    try {
+      const checkRes = await fetch('/api/auth/forgot-password/verify-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: cleanPhone })
+      });
+      const checkData = await checkRes.json();
+      if (!checkRes.ok) {
+        throw new Error(checkData.error || 'No account found with this phone number');
+      }
+
+      const fullPhone = `+91${cleanPhone}`;
       if (!window.recaptchaVerifier) {
         window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
           'size': 'invisible'
@@ -691,11 +831,11 @@ export default function App() {
 
       const confirmation = await signInWithPhoneNumber(auth, fullPhone, window.recaptchaVerifier);
       setConfirmationResult(confirmation);
-      setOtpStep('otp');
-      setOtpCode('');
-      console.log(`[FIREBASE AUTH] OTP sent to ${fullPhone}`);
+      setForgotStep('otp');
+      setAuthOtpCode('');
+      setAuthFormSuccess(`OTP sent to +91 ${cleanPhone}`);
     } catch (err) {
-      console.error('Firebase sign-in request failed:', err);
+      console.error('Send reset OTP failed:', err);
       let errMsg = err.message;
       if (err.code === 'auth/operation-not-allowed') {
         errMsg = 'Phone auth is disabled. Enable it in your Firebase console under Authentication > Sign-in method.';
@@ -708,65 +848,35 @@ export default function App() {
     }
   };
 
-  const handleVerifyOtp = async (e) => {
+  const handleVerifyResetOtp = async (e) => {
     e.preventDefault();
     setAuthFormError('');
-    if (!otpCode.trim() || otpCode.length !== 6) {
+    setAuthFormSuccess('');
+
+    if (!authOtpCode.trim() || authOtpCode.length !== 6) {
       setAuthFormError('Please enter a valid 6-digit OTP code');
       return;
     }
+    if (!confirmationResult) {
+      setAuthFormError('Session expired. Please request a new OTP code.');
+      setForgotStep('phone');
+      return;
+    }
+
     setAuthFormLoading(true);
     try {
-      if (!confirmationResult) {
-        throw new Error('No active verification session found. Try requesting another code.');
-      }
-
-      // 1. Confirm OTP with Firebase
-      const result = await confirmationResult.confirm(otpCode);
+      const result = await confirmationResult.confirm(authOtpCode);
       const firebaseToken = await result.user.getIdToken();
-
-      // 2. Validate Firebase token on our backend and get/create local JWT session
-      const res = await fetch('/api/auth/firebase-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: firebaseToken })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to establish verified session');
-      }
-
-      if (data.isNewUser) {
-        setOtpStep('register');
-        setUserNameInput('');
-      } else {
-        // Sign in user
-        localStorage.setItem('jwt_token', data.token);
-        localStorage.setItem('user_profile', JSON.stringify(data.user));
-        setUser(data.user);
-        setProfile({
-          name: data.user.name,
-          email: '',
-          phone: data.user.phone
-        });
-
-        // Load bookings from server
-        const bookingsRes = await fetch('/api/bookings', {
-          headers: { 'Authorization': `Bearer ${data.token}` }
-        });
-        if (bookingsRes.ok) {
-          const bookingsData = await bookingsRes.json();
-          setMyBookings(bookingsData);
-        }
-
-        setProfileSub(null);
-        setOtpStep('phone');
-      }
+      setVerifiedFirebaseToken(firebaseToken);
+      setForgotStep('reset');
+      setAuthNewPassword('');
+      setAuthConfirmPassword('');
+      setAuthFormSuccess('Phone verified. Create a new password below.');
     } catch (err) {
-      console.error('Firebase OTP verification failed:', err);
+      console.error('OTP confirmation failed:', err);
       let errMsg = err.message;
       if (err.code === 'auth/invalid-verification-code') {
-        errMsg = 'Invalid verification code. Please check the code and try again.';
+        errMsg = 'Invalid verification code. Please check the 6-digit OTP and try again.';
       } else if (err.code === 'auth/code-expired') {
         errMsg = 'Verification code has expired. Please request a new OTP.';
       }
@@ -776,26 +886,37 @@ export default function App() {
     }
   };
 
-  const handleRegisterAccount = async (e) => {
+  const handleResetPasswordSubmit = async (e) => {
     e.preventDefault();
     setAuthFormError('');
-    if (!userNameInput.trim()) {
-      setAuthFormError('Name is required');
+    setAuthFormSuccess('');
+
+    if (authNewPassword.length < 8) {
+      setAuthFormError('New password must be at least 8 characters long');
       return;
     }
+    if (authNewPassword !== authConfirmPassword) {
+      setAuthFormError('Passwords do not match');
+      return;
+    }
+
     setAuthFormLoading(true);
     try {
-      const res = await fetch('/api/auth/register', {
+      const cleanPhone = authPhone.replace(/\D/g, '');
+      const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phoneNumber, name: userNameInput })
+        body: JSON.stringify({
+          phone: cleanPhone,
+          firebaseToken: verifiedFirebaseToken,
+          newPassword: authNewPassword
+        })
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to complete registration');
+        throw new Error(data.error || 'Password reset failed');
       }
 
-      // Log them in
       localStorage.setItem('jwt_token', data.token);
       localStorage.setItem('user_profile', JSON.stringify(data.user));
       setUser(data.user);
@@ -804,13 +925,17 @@ export default function App() {
         email: '',
         phone: data.user.phone
       });
-      setMyBookings([]); // New user has no bookings
 
+      setAuthPhone('');
+      setAuthNewPassword('');
+      setAuthConfirmPassword('');
+      setVerifiedFirebaseToken(null);
+      setAuthMode('login');
+      setForgotStep('phone');
       setProfileSub(null);
-      setOtpStep('phone');
     } catch (err) {
-      console.error(err);
-      setAuthFormError(err.message || 'Registration failed');
+      console.error('Password reset failed:', err);
+      setAuthFormError(err.message || 'Failed to update password');
     } finally {
       setAuthFormLoading(false);
     }
@@ -904,6 +1029,10 @@ export default function App() {
   });
 
   const stats = getStats();
+
+  if (window.location.pathname === '/admin') {
+    return <AdminApp />;
+  }
 
   return (
     <div className="min-h-screen w-full bg-[#070707] text-white">
@@ -1629,28 +1758,101 @@ export default function App() {
           ) : !user ? (
             <div className="border border-neutral-900 bg-neutral-950/50 p-6 space-y-6 my-4 animate-in fade-in duration-200">
               <div id="recaptcha-container"></div>
+              
+              {/* Auth Mode Toggle Tabs (Log In vs Sign Up) */}
+              {authMode !== 'forgot' && (
+                <div className="flex border-b border-neutral-900 pb-4 justify-center gap-6">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('login');
+                      setAuthFormError('');
+                      setAuthFormSuccess('');
+                    }}
+                    className={`text-sm font-black uppercase tracking-wider transition pb-1 border-b-2 cursor-pointer ${
+                      authMode === 'login'
+                        ? 'text-[#22c55e] border-[#22c55e]'
+                        : 'text-neutral-500 border-transparent hover:text-neutral-300'
+                    }`}
+                  >
+                    Log In
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('signup');
+                      setAuthFormError('');
+                      setAuthFormSuccess('');
+                    }}
+                    className={`text-sm font-black uppercase tracking-wider transition pb-1 border-b-2 cursor-pointer ${
+                      authMode === 'signup'
+                        ? 'text-[#22c55e] border-[#22c55e]'
+                        : 'text-neutral-500 border-transparent hover:text-neutral-300'
+                    }`}
+                  >
+                    Sign Up
+                  </button>
+                </div>
+              )}
+
+              {authMode === 'forgot' && (
+                <div className="flex justify-between items-center border-b border-neutral-900 pb-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('login');
+                      setForgotStep('phone');
+                      setAuthFormError('');
+                      setAuthFormSuccess('');
+                    }}
+                    className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1 hover:text-white cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" /> Back to Log In
+                  </button>
+                  <span className="text-xs font-black uppercase text-[#22c55e] tracking-wider">
+                    Forgot Password
+                  </span>
+                </div>
+              )}
+
               <div className="text-center">
                 <h3 className="text-base font-black text-white uppercase tracking-tight">
-                  {otpStep === 'phone' && 'Phone Login'}
-                  {otpStep === 'otp' && 'Verify Code'}
-                  {otpStep === 'register' && 'New Player Info'}
+                  {authMode === 'login' && 'Welcome Back'}
+                  {authMode === 'signup' && 'Create Your Account'}
+                  {authMode === 'forgot' && (
+                    forgotStep === 'phone' ? 'Reset Password' :
+                    forgotStep === 'otp' ? 'Enter Verification Code' :
+                    'Set New Password'
+                  )}
                 </h3>
                 <p className="text-[10px] text-neutral-400 mt-1 uppercase font-bold tracking-wider">
-                  {otpStep === 'phone' && 'Enter your phone number to sign in'}
-                  {otpStep === 'otp' && `Enter 6-digit OTP sent to +91 ${phoneNumber}`}
-                  {otpStep === 'register' && 'Complete registration to continue'}
+                  {authMode === 'login' && 'Enter your phone number and password to log in'}
+                  {authMode === 'signup' && 'Register to book slots and manage your passes'}
+                  {authMode === 'forgot' && (
+                    forgotStep === 'phone' ? 'We will send a 6-digit OTP code to verify your phone' :
+                    forgotStep === 'otp' ? `Enter OTP code sent to +91 ${authPhone}` :
+                    'Enter your new account password below'
+                  )}
                 </p>
               </div>
 
               {authFormError && (
                 <div className="border border-red-900/60 bg-red-950/20 p-3 text-red-400 text-xs font-semibold flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
-                  <span>{authFormError}</span>
+                  <span className="flex-1">{authFormError}</span>
                 </div>
               )}
 
-              {otpStep === 'phone' && (
-                <form onSubmit={handleRequestOtp} className="space-y-4">
+              {authFormSuccess && (
+                <div className="border border-[#22c55e]/30 bg-[#22c55e]/10 p-3 text-[#22c55e] text-xs font-semibold flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-[#22c55e] shrink-0" />
+                  <span className="flex-1">{authFormSuccess}</span>
+                </div>
+              )}
+
+              {/* LOG IN FORM */}
+              {authMode === 'login' && (
+                <form onSubmit={handleLogin} className="space-y-4">
                   <div className="space-y-1.5">
                     <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Phone Number</label>
                     <div className="relative">
@@ -1658,8 +1860,8 @@ export default function App() {
                       <input 
                         type="tel" 
                         required
-                        value={phoneNumber}
-                        onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, ''))}
+                        value={authPhone}
+                        onChange={(e) => setAuthPhone(e.target.value.replace(/\D/g, ''))}
                         placeholder="9876543210" 
                         maxLength={10}
                         className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pl-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
@@ -1667,100 +1869,334 @@ export default function App() {
                     </div>
                   </div>
 
-                  <button 
-                    type="submit" 
-                    disabled={authFormLoading}
-                    className="w-full bg-[#22c55e] text-black font-black uppercase text-xs p-4 flex items-center justify-center gap-2 hover:bg-[#1db252] disabled:bg-neutral-850 disabled:text-neutral-500 transition cursor-pointer"
-                  >
-                    {authFormLoading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Sending OTP...
-                      </>
-                    ) : (
-                      'Send OTP Code'
-                    )}
-                  </button>
-                  <p className="text-center text-[9px] text-neutral-500 uppercase font-bold tracking-wider mt-2">
-                    For local mock testing, enter any phone number and use code 123456
-                  </p>
-                </form>
-              )}
-
-              {otpStep === 'otp' && (
-                <form onSubmit={handleVerifyOtp} className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">6-Digit Verification Code</label>
-                    <input 
-                      type="text" 
-                      required
-                      value={otpCode}
-                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder="123456" 
-                      maxLength={6}
-                      className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 text-xs tracking-[0.75em] text-center focus:border-[#22c55e] focus:outline-none transition"
-                    />
+                    <div className="flex justify-between items-center">
+                      <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Password</label>
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('forgot');
+                          setForgotStep('phone');
+                          setAuthFormError('');
+                          setAuthFormSuccess('');
+                        }}
+                        className="text-[10px] text-[#22c55e] hover:underline font-bold uppercase tracking-wider cursor-pointer"
+                      >
+                        Forgot Password?
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input 
+                        type={showPassword ? 'text' : 'password'} 
+                        required
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        placeholder="Enter your password" 
+                        className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pr-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-500 hover:text-white cursor-pointer"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
 
                   <button 
                     type="submit" 
                     disabled={authFormLoading}
-                    className="w-full bg-[#22c55e] text-black font-black uppercase text-xs p-4 flex items-center justify-center gap-2 hover:bg-[#1db252] disabled:bg-neutral-850 disabled:text-neutral-500 transition cursor-pointer"
+                    className="w-full bg-[#22c55e] text-black font-black uppercase text-xs p-4 flex items-center justify-center gap-2 hover:bg-[#1db252] disabled:bg-neutral-850 disabled:text-neutral-500 transition cursor-pointer shadow-[2px_2px_0px_#000]"
                   >
                     {authFormLoading ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Verifying...
+                        Logging In...
                       </>
                     ) : (
-                      'Verify Code'
+                      'Log In'
                     )}
                   </button>
 
-                  <div className="text-center pt-2">
-                    <button 
-                      type="button"
-                      onClick={() => {
-                        setOtpStep('phone');
-                        setAuthFormError('');
-                      }}
-                      className="text-xs text-neutral-400 hover:text-white underline"
-                    >
-                      Change Phone Number
-                    </button>
+                  <div className="text-center pt-2 border-t border-neutral-900">
+                    <p className="text-xs text-neutral-400">
+                      Don't have an account?{' '}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('signup');
+                          setAuthFormError('');
+                          setAuthFormSuccess('');
+                        }}
+                        className="text-[#22c55e] font-bold underline cursor-pointer"
+                      >
+                        Sign Up
+                      </button>
+                    </p>
                   </div>
                 </form>
               )}
 
-              {otpStep === 'register' && (
-                <form onSubmit={handleRegisterAccount} className="space-y-4">
+              {/* SIGN UP FORM */}
+              {authMode === 'signup' && (
+                <form onSubmit={handleSignUp} className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Your Full Name</label>
+                    <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Full Name</label>
                     <input 
                       type="text" 
                       required
-                      value={userNameInput}
-                      onChange={(e) => setUserNameInput(e.target.value)}
-                      placeholder="e.g. John Doe" 
+                      value={authName}
+                      onChange={(e) => setAuthName(e.target.value)}
+                      placeholder="John Doe" 
                       className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 text-xs focus:border-[#22c55e] focus:outline-none transition"
                     />
                   </div>
 
+                  <div className="space-y-1.5">
+                    <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Phone Number</label>
+                    <div className="relative">
+                      <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-neutral-500 text-xs font-bold">+91</span>
+                      <input 
+                        type="tel" 
+                        required
+                        value={authPhone}
+                        onChange={(e) => setAuthPhone(e.target.value.replace(/\D/g, ''))}
+                        placeholder="9876543210" 
+                        maxLength={10}
+                        className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pl-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Password <span className="text-[8px] text-neutral-500 font-normal">(Min 8 chars)</span></label>
+                    <div className="relative">
+                      <input 
+                        type={showPassword ? 'text' : 'password'} 
+                        required
+                        minLength={8}
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        placeholder="Create password (8+ characters)" 
+                        className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pr-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-500 hover:text-white cursor-pointer"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Confirm Password</label>
+                    <div className="relative">
+                      <input 
+                        type={showConfirmPassword ? 'text' : 'password'} 
+                        required
+                        minLength={8}
+                        value={authConfirmPassword}
+                        onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                        placeholder="Re-enter password to confirm" 
+                        className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pr-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-500 hover:text-white cursor-pointer"
+                      >
+                        {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
                   <button 
                     type="submit" 
                     disabled={authFormLoading}
-                    className="w-full bg-[#22c55e] text-black font-black uppercase text-xs p-4 flex items-center justify-center gap-2 hover:bg-[#1db252] disabled:bg-neutral-850 disabled:text-neutral-500 transition cursor-pointer"
+                    className="w-full bg-[#22c55e] text-black font-black uppercase text-xs p-4 flex items-center justify-center gap-2 hover:bg-[#1db252] disabled:bg-neutral-850 disabled:text-neutral-500 transition cursor-pointer shadow-[2px_2px_0px_#000]"
                   >
                     {authFormLoading ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Completing Signup...
+                        Creating Account...
                       </>
                     ) : (
-                      'Complete Registration'
+                      'Sign Up'
                     )}
                   </button>
+
+                  <div className="text-center pt-2 border-t border-neutral-900">
+                    <p className="text-xs text-neutral-400">
+                      Already have an account?{' '}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('login');
+                          setAuthFormError('');
+                          setAuthFormSuccess('');
+                        }}
+                        className="text-[#22c55e] font-bold underline cursor-pointer"
+                      >
+                        Log In
+                      </button>
+                    </p>
+                  </div>
                 </form>
+              )}
+
+              {/* FORGOT PASSWORD FLOW */}
+              {authMode === 'forgot' && (
+                <>
+                  {forgotStep === 'phone' && (
+                    <form onSubmit={handleSendResetOtp} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Registered Phone Number</label>
+                        <div className="relative">
+                          <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-neutral-500 text-xs font-bold">+91</span>
+                          <input 
+                            type="tel" 
+                            required
+                            value={authPhone}
+                            onChange={(e) => setAuthPhone(e.target.value.replace(/\D/g, ''))}
+                            placeholder="9876543210" 
+                            maxLength={10}
+                            className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pl-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
+                          />
+                        </div>
+                      </div>
+
+                      <button 
+                        type="submit" 
+                        disabled={authFormLoading}
+                        className="w-full bg-[#22c55e] text-black font-black uppercase text-xs p-4 flex items-center justify-center gap-2 hover:bg-[#1db252] disabled:bg-neutral-850 disabled:text-neutral-500 transition cursor-pointer shadow-[2px_2px_0px_#000]"
+                      >
+                        {authFormLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Sending OTP...
+                          </>
+                        ) : (
+                          'Send Verification OTP'
+                        )}
+                      </button>
+                      <p className="text-center text-[9px] text-neutral-500 uppercase font-bold tracking-wider mt-2">
+                        For test numbers, use fixed OTP 123456
+                      </p>
+                    </form>
+                  )}
+
+                  {forgotStep === 'otp' && (
+                    <form onSubmit={handleVerifyResetOtp} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">6-Digit OTP Code</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={authOtpCode}
+                          onChange={(e) => setAuthOtpCode(e.target.value.replace(/\D/g, ''))}
+                          placeholder="123456" 
+                          maxLength={6}
+                          className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 text-xs tracking-[0.75em] text-center focus:border-[#22c55e] focus:outline-none transition"
+                        />
+                      </div>
+
+                      <button 
+                        type="submit" 
+                        disabled={authFormLoading}
+                        className="w-full bg-[#22c55e] text-black font-black uppercase text-xs p-4 flex items-center justify-center gap-2 hover:bg-[#1db252] disabled:bg-neutral-850 disabled:text-neutral-500 transition cursor-pointer shadow-[2px_2px_0px_#000]"
+                      >
+                        {authFormLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Verifying OTP...
+                          </>
+                        ) : (
+                          'Verify OTP Code'
+                        )}
+                      </button>
+
+                      <div className="text-center pt-2">
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            setForgotStep('phone');
+                            setAuthFormError('');
+                            setAuthFormSuccess('');
+                          }}
+                          className="text-xs text-neutral-400 hover:text-white underline cursor-pointer"
+                        >
+                          Change Phone Number
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {forgotStep === 'reset' && (
+                    <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+                      <div className="space-y-1.5">
+                        <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">New Password <span className="text-[8px] text-neutral-500 font-normal">(Min 8 chars)</span></label>
+                        <div className="relative">
+                          <input 
+                            type={showNewPassword ? 'text' : 'password'} 
+                            required
+                            minLength={8}
+                            value={authNewPassword}
+                            onChange={(e) => setAuthNewPassword(e.target.value)}
+                            placeholder="Enter new password" 
+                            className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pr-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowNewPassword(!showNewPassword)}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-500 hover:text-white cursor-pointer"
+                          >
+                            {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-[9px] font-bold text-neutral-500 uppercase tracking-wider">Confirm New Password</label>
+                        <div className="relative">
+                          <input 
+                            type={showConfirmPassword ? 'text' : 'password'} 
+                            required
+                            minLength={8}
+                            value={authConfirmPassword}
+                            onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                            placeholder="Confirm new password" 
+                            className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pr-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center text-neutral-500 hover:text-white cursor-pointer"
+                          >
+                            {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <button 
+                        type="submit" 
+                        disabled={authFormLoading}
+                        className="w-full bg-[#22c55e] text-black font-black uppercase text-xs p-4 flex items-center justify-center gap-2 hover:bg-[#1db252] disabled:bg-neutral-850 disabled:text-neutral-500 transition cursor-pointer shadow-[2px_2px_0px_#000]"
+                      >
+                        {authFormLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Updating Password...
+                          </>
+                        ) : (
+                          'Reset Password & Log In'
+                        )}
+                      </button>
+                    </form>
+                  )}
+                </>
               )}
 
               <div className="pt-4 border-t border-neutral-900/60 flex justify-center">

@@ -168,6 +168,17 @@ async function checkAndMigratePostgres() {
       await pgPool.query("ALTER TABLE admin_settings ADD COLUMN price_per_slot_day REAL DEFAULT 1200");
       await pgPool.query("ALTER TABLE admin_settings ADD COLUMN price_per_slot_night REAL DEFAULT 1500");
     }
+
+    // Migration check for password_hash column in Postgres users table
+    const passHashCheck = await pgPool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'users' AND column_name = 'password_hash'
+    `);
+    if (passHashCheck.rows.length === 0) {
+      console.log("Migration: Adding password_hash column to users table in Postgres...");
+      await pgPool.query("ALTER TABLE users ADD COLUMN password_hash TEXT");
+    }
   } catch (err) {
     console.warn("Postgres migration check failed, skipping drops:", err.message);
   }
@@ -193,6 +204,7 @@ function initializeSqliteTables() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       phone TEXT UNIQUE NOT NULL,
+      password_hash TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -242,6 +254,7 @@ function initializeSqliteTables() {
       sqliteDb.run("ALTER TABLE bookings ADD COLUMN device_type TEXT DEFAULT 'mobile'", () => {});
       sqliteDb.run("ALTER TABLE admin_settings ADD COLUMN price_per_slot_day REAL DEFAULT 1200", () => {});
       sqliteDb.run("ALTER TABLE admin_settings ADD COLUMN price_per_slot_night REAL DEFAULT 1500", () => {});
+      sqliteDb.run("ALTER TABLE users ADD COLUMN password_hash TEXT", () => {});
       sqliteDb.run(`
         INSERT OR IGNORE INTO admin_settings (
           id, turf_name, operating_hours_start, operating_hours_end, 
@@ -274,6 +287,7 @@ async function initializePostgresTables() {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       phone TEXT UNIQUE NOT NULL,
+      password_hash TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -345,13 +359,25 @@ export const query = async (text, params = []) => {
         return { rows };
       }
       
-      // 2. INSERT INTO users (id, name, phone, created_at)
+      // 2. INSERT INTO users (id, name, phone, password_hash, created_at)
       if (trimmedText.startsWith('INSERT INTO users')) {
         await firestoreDb.collection('users').doc(params[0]).set({
           name: params[1],
           phone: params[2],
-          created_at: params[3]
+          password_hash: params[3],
+          created_at: params[4] || params[3]
         });
+        return { rows: [] };
+      }
+
+      // 2b. UPDATE users SET password_hash = $1 WHERE phone = $2
+      if (trimmedText.startsWith('UPDATE users SET password_hash')) {
+        const snap = await firestoreDb.collection('users').where('phone', '==', params[1]).get();
+        const batch = firestoreDb.batch();
+        snap.docs.forEach(doc => {
+          batch.update(doc.ref, { password_hash: params[0] });
+        });
+        await batch.commit();
         return { rows: [] };
       }
       

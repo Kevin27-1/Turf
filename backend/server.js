@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import admin from 'firebase-admin';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
@@ -66,119 +67,188 @@ app.use(express.json());
 console.log(`Express server is using database engine: ${getDbEngine()}`);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'turf-booking-secret-key-123';
-const pendingOtps = new Map(); // phone -> mock otp cache
 
-// POST /api/auth/send-otp (Simulate sending SMS verification code)
-app.post('/api/auth/send-otp', (req, res) => {
-  const { phone } = req.body;
-  if (!phone) {
+// In-memory login attempt rate limiter
+const loginAttempts = new Map(); // phone -> { count: number, lockUntil: number }
+
+function checkRateLimit(phone) {
+  const attempts = loginAttempts.get(phone);
+  if (!attempts) return { allowed: true };
+  if (attempts.lockUntil && attempts.lockUntil > Date.now()) {
+    const remainingSecs = Math.ceil((attempts.lockUntil - Date.now()) / 1000);
+    return { allowed: false, message: `Too many failed login attempts. Please wait ${remainingSecs} seconds before trying again.` };
+  }
+  return { allowed: true };
+}
+
+function recordFailedAttempt(phone) {
+  const attempts = loginAttempts.get(phone) || { count: 0, lockUntil: 0 };
+  attempts.count += 1;
+  if (attempts.count >= 5) {
+    attempts.lockUntil = Date.now() + 15 * 60 * 1000; // 15 minutes lockout
+  }
+  loginAttempts.set(phone, attempts);
+}
+
+function resetRateLimit(phone) {
+  loginAttempts.delete(phone);
+}
+
+// POST /api/auth/signup (Register new user with Name, Phone, and Password)
+app.post('/api/auth/signup', async (req, res) => {
+  const { name, phone, password } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Full name is required' });
+  }
+  if (!phone || !phone.trim()) {
     return res.status(400).json({ error: 'Phone number is required' });
   }
-
-  // Set mock code (always 123456 for offline testing/development)
-  const otp = '123456';
-  pendingOtps.set(phone, otp);
-
-  console.log(`[SMS AUTH] OTP Code: ${otp} sent to: ${phone}`);
-  
-  res.json({ success: true, message: 'OTP sent (use mock code 123456)' });
-});
-
-// POST /api/auth/verify-otp (Verify mock verification code)
-app.post('/api/auth/verify-otp', async (req, res) => {
-  const { phone, otp } = req.body;
-  if (!phone || !otp) {
-    return res.status(400).json({ error: 'Phone number and verification OTP code are required' });
+  if (!password || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters long' });
   }
 
-  const storedOtp = pendingOtps.get(phone);
-  if (otp !== storedOtp && otp !== '123456') { // Allow 123456 override
-    return res.status(400).json({ error: 'Invalid verification code' });
-  }
-
-  pendingOtps.delete(phone); // Consume OTP
+  const cleanPhone = phone.replace(/^\+91/, '').replace(/\D/g, '');
 
   try {
-    const userCheck = await query('SELECT id, name, phone, created_at FROM users WHERE phone = $1', [phone]);
-    
-    if (userCheck.rows.length === 0) {
-      // First-time user needs name registration
-      return res.json({ success: true, isNewUser: true, phone });
-    }
-
-    const user = userCheck.rows[0];
-    const token = jwt.sign({ id: user.id, name: user.name, phone: user.phone }, JWT_SECRET, { expiresIn: '7d' });
-    
-    res.json({ success: true, isNewUser: false, user, token });
-  } catch (err) {
-    console.error('Error verifying OTP:', err);
-    res.status(500).json({ error: 'Failed to process OTP verification' });
-  }
-});
-
-// POST /api/auth/register (Create users and sign token)
-app.post('/api/auth/register', async (req, res) => {
-  const { phone, name } = req.body;
-  if (!phone || !name) {
-    return res.status(400).json({ error: 'Phone number and Name are required' });
-  }
-
-  try {
-    const userCheck = await query('SELECT id FROM users WHERE phone = $1', [phone]);
+    const userCheck = await query('SELECT id FROM users WHERE phone = $1', [cleanPhone]);
     if (userCheck.rows.length > 0) {
-      return res.status(400).json({ error: 'User with this phone number is already registered' });
+      return res.status(400).json({ error: 'Phone number is already registered. Please log in instead.' });
     }
 
+    const passwordHash = await bcrypt.hash(password, 10);
     const userId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
-    
+
     await query(
-      'INSERT INTO users (id, name, phone, created_at) VALUES ($1, $2, $3, $4)',
-      [userId, name, phone, createdAt]
+      'INSERT INTO users (id, name, phone, password_hash, created_at) VALUES ($1, $2, $3, $4, $5)',
+      [userId, name.trim(), cleanPhone, passwordHash, createdAt]
     );
 
-    const user = { id: userId, name, phone, created_at: createdAt };
-    const token = jwt.sign({ id: userId, name, phone }, JWT_SECRET, { expiresIn: '7d' });
+    const user = { id: userId, name: name.trim(), phone: cleanPhone, created_at: createdAt };
+    const token = jwt.sign({ id: userId, name: user.name, phone: user.phone }, JWT_SECRET, { expiresIn: '7d' });
 
     res.status(201).json({ success: true, user, token });
   } catch (err) {
-    console.error('Failed to register user:', err);
+    console.error('Failed to sign up user:', err);
     res.status(500).json({ error: 'Failed to complete user registration' });
   }
 });
 
-// POST /api/auth/firebase-login (Verify Firebase ID token and return/register local user session)
-app.post('/api/auth/firebase-login', async (req, res) => {
-  const { token } = req.body;
-  if (!token) {
-    return res.status(400).json({ error: 'Token is required' });
+// POST /api/auth/login (Log in existing user with Phone and Password)
+app.post('/api/auth/login', async (req, res) => {
+  const { phone, password } = req.body;
+  if (!phone || !phone.trim()) {
+    return res.status(400).json({ error: 'Phone number is required' });
+  }
+  if (!password) {
+    return res.status(400).json({ error: 'Password is required' });
+  }
+
+  const cleanPhone = phone.replace(/^\+91/, '').replace(/\D/g, '');
+
+  const rateCheck = checkRateLimit(cleanPhone);
+  if (!rateCheck.allowed) {
+    return res.status(429).json({ error: rateCheck.message });
   }
 
   try {
-    const decodedToken = await getAuth().verifyIdToken(token);
-    const phoneWithCode = decodedToken.phone_number; // e.g. "+919876543210"
-    if (!phoneWithCode) {
-      return res.status(400).json({ error: 'Phone number verification is required in Firebase' });
-    }
-
-    // Clean up country code prefix
-    const phone = phoneWithCode.replace(/^\+91/, '').replace(/\D/g, '');
-
-    // Check if user already exists in local SQLite db
-    const userCheck = await query('SELECT id, name, phone, created_at FROM users WHERE phone = $1', [phone]);
-
+    const userCheck = await query('SELECT id, name, phone, password_hash, created_at FROM users WHERE phone = $1', [cleanPhone]);
+    
     if (userCheck.rows.length === 0) {
-      // First-time user needs name registration, return temporary register flag
-      return res.json({ success: true, isNewUser: true, phone });
+      recordFailedAttempt(cleanPhone);
+      return res.status(404).json({ error: 'No account found — Sign Up instead?' });
     }
 
     const user = userCheck.rows[0];
-    const localToken = jwt.sign({ id: user.id, name: user.name, phone: user.phone }, JWT_SECRET, { expiresIn: '7d' });
-    
-    res.json({ success: true, isNewUser: false, user, token: localToken });
+
+    if (!user.password_hash) {
+      return res.status(400).json({ error: 'Account password not set. Please use "Forgot Password?" to set your password.' });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!isMatch) {
+      recordFailedAttempt(cleanPhone);
+      return res.status(401).json({ error: 'Incorrect password' });
+    }
+
+    resetRateLimit(cleanPhone);
+
+    const token = jwt.sign({ id: user.id, name: user.name, phone: user.phone }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({
+      success: true,
+      user: { id: user.id, name: user.name, phone: user.phone, created_at: user.created_at },
+      token
+    });
   } catch (err) {
-    console.error('Firebase token verification failed:', err);
-    res.status(401).json({ error: 'Unauthorized: Invalid Firebase credentials' });
+    console.error('Error logging in:', err);
+    res.status(500).json({ error: 'Failed to process login request' });
+  }
+});
+
+// POST /api/auth/forgot-password/verify-user (Check if phone number exists before sending Firebase OTP)
+app.post('/api/auth/forgot-password/verify-user', async (req, res) => {
+  const { phone } = req.body;
+  if (!phone || !phone.trim()) {
+    return res.status(400).json({ error: 'Phone number is required' });
+  }
+
+  const cleanPhone = phone.replace(/^\+91/, '').replace(/\D/g, '');
+
+  try {
+    const userCheck = await query('SELECT id, name FROM users WHERE phone = $1', [cleanPhone]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'No account found with this phone number. Please check the number or Sign Up.' });
+    }
+    res.json({ success: true, exists: true });
+  } catch (err) {
+    console.error('Failed to verify user phone:', err);
+    res.status(500).json({ error: 'Failed to verify account' });
+  }
+});
+
+// POST /api/auth/reset-password (Update password after Firebase OTP phone verification)
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { phone, firebaseToken, newPassword } = req.body;
+  if (!phone || !firebaseToken || !newPassword) {
+    return res.status(400).json({ error: 'Phone number, verification token, and new password are required' });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters long' });
+  }
+
+  const cleanPhone = phone.replace(/^\+91/, '').replace(/\D/g, '');
+
+  try {
+    const decodedToken = await getAuth().verifyIdToken(firebaseToken);
+    const phoneWithCode = decodedToken.phone_number;
+    if (!phoneWithCode) {
+      return res.status(400).json({ error: 'Firebase phone verification invalid' });
+    }
+    const firebaseCleanPhone = phoneWithCode.replace(/^\+91/, '').replace(/\D/g, '');
+    if (firebaseCleanPhone !== cleanPhone) {
+      return res.status(400).json({ error: 'Verified phone number does not match request phone number' });
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await query('UPDATE users SET password_hash = $1 WHERE phone = $2', [passwordHash, cleanPhone]);
+
+    const userCheck = await query('SELECT id, name, phone, created_at FROM users WHERE phone = $1', [cleanPhone]);
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User account not found' });
+    }
+
+    const user = userCheck.rows[0];
+    const token = jwt.sign({ id: user.id, name: user.name, phone: user.phone }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      success: true,
+      message: 'Password reset successfully',
+      user,
+      token
+    });
+  } catch (err) {
+    console.error('Password reset failed:', err);
+    res.status(401).json({ error: 'Failed to verify phone ownership or update password: ' + err.message });
   }
 });
 
