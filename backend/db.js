@@ -358,6 +358,12 @@ export const query = async (text, params = []) => {
         const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         return { rows };
       }
+
+      // 1b. SELECT id, name, phone FROM users WHERE id = $1
+      if (trimmedText.includes('FROM users') && trimmedText.includes('id = $1')) {
+        const doc = await firestoreDb.collection('users').doc(params[0]).get();
+        return { rows: doc.exists ? [{ id: doc.id, ...doc.data() }] : [] };
+      }
       
       // 2. INSERT INTO users (id, name, phone, password_hash, created_at)
       if (trimmedText.startsWith('INSERT INTO users')) {
