@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { AreaChart, Area, XAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { auth } from './firebase.js';
 import BounceCards from './BounceCards.jsx';
 import Dock from './Dock.jsx';
@@ -191,9 +190,9 @@ export default function App() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
   const galleryImages = [
-    { src: '/turf_real_day.jpg', caption: 'Golden Arm Turf Pitch View (Day)' },
-    { src: '/turf_real_night.jpg', caption: 'Playing at Night Under Lights' },
-    { src: '/turf_grass.jpg', caption: 'FIFA-certified Surface Close-up' }
+    { src: '/turf_real_day.webp', caption: 'Golden Arm Turf Pitch View (Day)' },
+    { src: '/turf_real_night.webp', caption: 'Playing at Night Under Lights' },
+    { src: '/turf_grass.webp', caption: 'FIFA-certified Surface Close-up' }
   ];
 
   // Restore session from localStorage on Mount
@@ -1139,8 +1138,12 @@ export default function App() {
           <section className="relative w-full h-[320px] md:h-[520px] overflow-hidden flex items-center justify-center md:justify-start">
             <div className="absolute inset-0 z-0">
               <img 
-                src="/turf_hero.jpg" 
+                src="/turf_hero.webp" 
                 alt="Golden Arm Turf" 
+                width="1200"
+                height="520"
+                fetchpriority="high"
+                decoding="async"
                 className="w-full h-full object-cover animate-fade-scale"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-[#070707] via-black/50 to-transparent md:bg-gradient-to-r md:from-black/90 md:via-black/60 md:to-transparent"></div>
@@ -1290,7 +1293,7 @@ export default function App() {
                     onClick={() => handleLightboxOpen(idx)}
                     className="flex-shrink-0 w-[180px] h-[120px] border border-neutral-900 bg-neutral-950 relative overflow-hidden snap-center hover:border-[#22c55e]/50 transition"
                   >
-                    <img src={img.src} alt={img.caption} className="w-full h-full object-cover hover:scale-105 transition duration-300" />
+                    <img src={img.src} alt={img.caption} loading="lazy" decoding="async" className="w-full h-full object-cover hover:scale-105 transition duration-300" />
                     <div className="absolute bottom-0 inset-x-0 bg-black/80 px-2 py-1 text-[8px] font-bold uppercase tracking-wider text-neutral-400 text-left truncate">{img.caption}</div>
                   </button>
                 ))}
@@ -1303,7 +1306,7 @@ export default function App() {
                     onClick={() => handleLightboxOpen(idx)}
                     className="w-full h-[220px] border border-neutral-900 bg-neutral-950 relative overflow-hidden hover:border-[#22c55e]/50 transition group"
                   >
-                    <img src={img.src} alt={img.caption} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                    <img src={img.src} alt={img.caption} loading="lazy" decoding="async" className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
                     <div className="absolute bottom-0 inset-x-0 bg-black/80 px-3 py-2 text-[9px] font-bold uppercase tracking-wider text-neutral-400 text-left truncate">{img.caption}</div>
                   </button>
                 ))}
@@ -4244,6 +4247,13 @@ function AdminApp() {
 // ==========================================
 function InteractiveRevenueChart({ rawChartData = [] }) {
   const [timeRange, setTimeRange] = useState("30d");
+  const [Recharts, setRecharts] = useState(null);
+
+  useEffect(() => {
+    import('recharts').then(mod => {
+      setRecharts(mod);
+    });
+  }, []);
 
   const filteredData = React.useMemo(() => {
     if (!rawChartData || rawChartData.length === 0) return [];
@@ -4295,10 +4305,14 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
 
       {/* Recharts Area Chart */}
       <div className="pt-2">
-        {filteredData.length > 0 ? (
+        {!Recharts ? (
+          <div className="h-[280px] w-full flex items-center justify-center text-xs text-neutral-500 font-bold uppercase tracking-wider">
+            Loading chart engine...
+          </div>
+        ) : filteredData.length > 0 ? (
           <div className="h-[280px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={filteredData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <Recharts.ResponsiveContainer width="100%" height="100%">
+              <Recharts.AreaChart data={filteredData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="fillRevenue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#22c55e" stopOpacity={0.8} />
@@ -4306,9 +4320,9 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
                   </linearGradient>
                 </defs>
 
-                <CartesianGrid vertical={false} stroke="#262626" strokeDasharray="3 3" />
+                <Recharts.CartesianGrid vertical={false} stroke="#262626" strokeDasharray="3 3" />
 
-                <XAxis
+                <Recharts.XAxis
                   dataKey="date"
                   tickLine={false}
                   axisLine={false}
@@ -4326,7 +4340,7 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
                   }}
                 />
 
-                <Tooltip
+                <Recharts.Tooltip
                   cursor={{ stroke: '#525252', strokeWidth: 1 }}
                   content={({ active, payload, label }) => {
                     if (active && payload && payload.length) {
@@ -4353,15 +4367,15 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
                   }}
                 />
 
-                <Area
+                <Recharts.Area
                   dataKey="revenue"
                   type="monotone"
                   fill="url(#fillRevenue)"
                   stroke="#22c55e"
                   strokeWidth={2}
                 />
-              </AreaChart>
-            </ResponsiveContainer>
+              </Recharts.AreaChart>
+            </Recharts.ResponsiveContainer>
           </div>
         ) : (
           <div className="text-center py-12 text-neutral-600 text-xs font-bold uppercase tracking-wider">
