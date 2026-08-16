@@ -1,5 +1,4 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -11,19 +10,24 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-let auth = null;
-let googleProvider = null;
+let app = null;
+let authInstance = null;
+let googleProviderInstance = null;
 
-if (firebaseConfig.apiKey) {
-  try {
-    const app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    googleProvider = new GoogleAuthProvider();
-  } catch (err) {
-    console.error("Firebase initialization failed:", err);
-  }
-} else {
-  console.warn("Firebase configuration (apiKey) is missing. Authentication will not work properly.");
+export async function getFirebaseAuth() {
+  if (authInstance) return authInstance;
+  if (!firebaseConfig.apiKey) return null;
+  if (!app) app = initializeApp(firebaseConfig);
+  const { getAuth } = await import("firebase/auth");
+  authInstance = getAuth(app);
+  return authInstance;
 }
 
-export { auth, googleProvider };
+export async function getGoogleProvider() {
+  if (googleProviderInstance) return googleProviderInstance;
+  const { GoogleAuthProvider } = await import("firebase/auth");
+  googleProviderInstance = new GoogleAuthProvider();
+  return googleProviderInstance;
+}
+
+export { authInstance as auth };

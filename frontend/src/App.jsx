@@ -1,5 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { auth } from './firebase.js';
+import { getFirebaseAuth } from './firebase.js';
 
 const BounceCards = lazy(() => import('./BounceCards.jsx'));
 const Dock = lazy(() => import('./Dock.jsx'));
@@ -718,6 +718,7 @@ export default function App() {
 
       const fullPhone = `+91${cleanPhone}`;
       const { RecaptchaVerifier, signInWithPhoneNumber } = await import('firebase/auth');
+      const auth = await getFirebaseAuth();
       if (window.recaptchaVerifier) {
         try {
           window.recaptchaVerifier.clear();
@@ -895,6 +896,7 @@ export default function App() {
 
       const fullPhone = `+91${cleanPhone}`;
       const { RecaptchaVerifier, signInWithPhoneNumber } = await import('firebase/auth');
+      const auth = await getFirebaseAuth();
       if (window.recaptchaVerifier) {
         try {
           window.recaptchaVerifier.clear();
@@ -1153,12 +1155,12 @@ export default function App() {
 
             {/* Mobile hero content — centered */}
             <div className="relative z-10 text-center px-6 flex flex-col items-center md:hidden">
-              <div style={{transitionDelay:'0ms'}} className="scroll-reveal border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-3 py-0.5 text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 mb-3">
+              <div className="border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-3 py-0.5 text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 mb-3">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse"></span>
                 Open 24 Hours
               </div>
               {user && (
-                <div style={{transitionDelay:'80ms'}} className="scroll-reveal text-[10px] font-bold text-[#22c55e] uppercase tracking-widest mb-2">
+                <div className="text-[10px] font-bold text-[#22c55e] uppercase tracking-widest mb-2">
                   Hi, {user.name}
                 </div>
               )}
@@ -1168,22 +1170,21 @@ export default function App() {
                 const lastName = nameParts.slice(1).join(' ') || 'Turf';
                 return (
                   <>
-                    <h1 style={{transitionDelay:'80ms'}} className="scroll-reveal text-[1.85rem] sm:text-[2.25rem] font-black tracking-wider uppercase text-white leading-none">
+                    <h1 className="text-[1.85rem] sm:text-[2.25rem] font-black tracking-wider uppercase text-white leading-none">
                       {firstName}
                     </h1>
-                    <h1 style={{transitionDelay:'160ms'}} className="scroll-reveal text-[3rem] sm:text-[3.5rem] font-black tracking-wider uppercase text-[#22c55e] leading-none mt-0.5">
+                    <h1 className="text-[3rem] sm:text-[3.5rem] font-black tracking-wider uppercase text-[#22c55e] leading-none mt-0.5">
                       {lastName}
                     </h1>
                   </>
                 );
               })()}
-              <p style={{transitionDelay:'260ms'}} className="scroll-reveal text-neutral-300 text-[9px] font-bold uppercase tracking-widest mt-2 max-w-[280px]">
+              <p className="text-neutral-300 text-[9px] font-bold uppercase tracking-widest mt-2 max-w-[280px]">
                 {publicSettings.turf_name}'s Premier Turf Arena
               </p>
               <button
                 onClick={() => setCurrentTab('book')}
-                style={{transitionDelay:'380ms'}}
-                className="scroll-reveal mt-6 px-8 py-3.5 bg-[#22c55e] text-black font-extrabold text-[11px] uppercase tracking-widest rounded-none border border-black hover:bg-[#1db252] transition shadow-[3px_3px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0px_#000]"
+                className="mt-6 px-8 py-3.5 bg-[#22c55e] text-black font-extrabold text-[11px] uppercase tracking-widest rounded-none border border-black hover:bg-[#1db252] transition shadow-[3px_3px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0px_#000]"
               >
                 Book Court Now &rarr;
               </button>
@@ -1191,12 +1192,12 @@ export default function App() {
 
             {/* Desktop hero content — left-aligned, large */}
             <div className="relative z-10 hidden md:flex flex-col items-start px-16 max-w-3xl">
-              <div className="scroll-reveal border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-4 py-1 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 mb-5">
+              <div className="border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-4 py-1 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 mb-5">
                 <span className="w-2 h-2 rounded-full bg-[#22c55e] animate-pulse"></span>
                 Open 24 Hours • Alakode, Kerala
               </div>
               {user && (
-                <div className="scroll-reveal text-xs font-bold text-[#22c55e] uppercase tracking-widest mb-3">
+                <div className="text-xs font-bold text-[#22c55e] uppercase tracking-widest mb-3">
                   Welcome back, {user.name}
                 </div>
               )}
@@ -1206,19 +1207,19 @@ export default function App() {
                 const lastName = nameParts.slice(1).join(' ') || 'Turf';
                 return (
                   <>
-                    <h1 className="scroll-reveal text-[4rem] lg:text-[5rem] font-black tracking-wider uppercase text-white leading-none">
+                    <h1 className="text-[4rem] lg:text-[5rem] font-black tracking-wider uppercase text-white leading-none">
                       {firstName}
                     </h1>
-                    <h1 style={{transitionDelay:'120ms'}} className="scroll-reveal text-[5.5rem] lg:text-[6.5rem] font-black tracking-wider uppercase text-[#22c55e] leading-none">
+                    <h1 className="text-[5.5rem] lg:text-[6.5rem] font-black tracking-wider uppercase text-[#22c55e] leading-none">
                       {lastName}
                     </h1>
                   </>
                 );
               })()}
-              <p style={{transitionDelay:'240ms'}} className="scroll-reveal text-neutral-400 text-sm font-bold uppercase tracking-widest mt-4 max-w-md">
+              <p className="text-neutral-400 text-sm font-bold uppercase tracking-widest mt-4 max-w-md">
                 Alakode's Premier 5-a-side Turf — Football & Cricket
               </p>
-              <div style={{transitionDelay:'360ms'}} className="scroll-reveal flex items-center gap-4 mt-8">
+              <div className="flex items-center gap-4 mt-8">
                 <button
                   onClick={() => setCurrentTab('book')}
                   className="px-10 py-4 bg-[#22c55e] text-black font-extrabold text-sm uppercase tracking-widest rounded-none border border-black hover:bg-[#1db252] transition shadow-[4px_4px_0px_#000000] hover:shadow-[2px_2px_0px_#000] active:translate-x-1 active:translate-y-1"
@@ -1238,7 +1239,7 @@ export default function App() {
           </section>
 
           {/* B. LIVE AVAILABILITY TEASER */}
-          <section className="scroll-reveal w-full px-6 py-2 bg-neutral-950 border-y border-neutral-900 md:px-16">
+          <section className="w-full px-6 py-2 bg-neutral-950 border-y border-neutral-900 md:px-16">
             <div className="md:max-w-7xl md:mx-auto">
             <button
               onClick={handleLiveTeaserClick}
