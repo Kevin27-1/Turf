@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { auth } from './firebase.js';
-import BounceCards from './BounceCards.jsx';
-import Dock from './Dock.jsx';
-import { RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
+
+const BounceCards = lazy(() => import('./BounceCards.jsx'));
+const Dock = lazy(() => import('./Dock.jsx'));
 import { 
   Calendar, 
   Clock, 
@@ -717,6 +717,7 @@ export default function App() {
       }
 
       const fullPhone = `+91${cleanPhone}`;
+      const { RecaptchaVerifier, signInWithPhoneNumber } = await import('firebase/auth');
       if (window.recaptchaVerifier) {
         try {
           window.recaptchaVerifier.clear();
@@ -893,6 +894,7 @@ export default function App() {
       }
 
       const fullPhone = `+91${cleanPhone}`;
+      const { RecaptchaVerifier, signInWithPhoneNumber } = await import('firebase/auth');
       if (window.recaptchaVerifier) {
         try {
           window.recaptchaVerifier.clear();
@@ -1345,33 +1347,35 @@ export default function App() {
 
                 {/* Animated BounceCards stack */}
                 <div className="w-full flex justify-center py-6 overflow-hidden min-h-[260px]">
-                  <BounceCards
-                    cards={reviewsData.reviews.slice(0, 5).map((r, idx) => (
-                      <div key={idx} className="w-full h-full flex flex-col justify-between p-4 text-left select-none">
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-black text-white uppercase truncate max-w-[125px]">
-                              {r.author_name}
-                            </span>
-                            <span className="text-[#22c55e] text-[8px]">
-                              {"★".repeat(Math.round(r.rating || 5))}
-                            </span>
+                  <Suspense fallback={<div className="h-[220px] w-full flex items-center justify-center text-neutral-600 text-xs">Loading reviews...</div>}>
+                    <BounceCards
+                      cards={reviewsData.reviews.slice(0, 5).map((r, idx) => (
+                        <div key={idx} className="w-full h-full flex flex-col justify-between p-4 text-left select-none">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[10px] font-black text-white uppercase truncate max-w-[125px]">
+                                {r.author_name}
+                              </span>
+                              <span className="text-[#22c55e] text-[8px]">
+                                {"★".repeat(Math.round(r.rating || 5))}
+                              </span>
+                            </div>
+                            <p className="text-[9.5px] text-neutral-400 font-medium leading-relaxed line-clamp-4">
+                              "{r.text}"
+                            </p>
                           </div>
-                          <p className="text-[9.5px] text-neutral-400 font-medium leading-relaxed line-clamp-4">
-                            "{r.text}"
-                          </p>
+                          <span className="text-[8px] text-neutral-600 font-bold uppercase block mt-1">
+                            {r.relative_time_description}
+                          </span>
                         </div>
-                        <span className="text-[8px] text-neutral-600 font-bold uppercase block mt-1">
-                          {r.relative_time_description}
-                        </span>
-                      </div>
-                    ))}
-                    containerWidth={320}
-                    containerHeight={220}
-                    animationDelay={0.2}
-                    animationStagger={0.06}
-                    enableHover={true}
-                  />
+                      ))}
+                      containerWidth={320}
+                      containerHeight={220}
+                      animationDelay={0.2}
+                      animationStagger={0.06}
+                      enableHover={true}
+                    />
+                  </Suspense>
                 </div>
                 <p className="text-[8px] text-neutral-600 uppercase tracking-widest font-bold mt-2">
                   Hover or tap reviews to inspect details
@@ -2881,37 +2885,39 @@ export default function App() {
       {/* --- FIXED BOTTOM NAVIGATION BAR --- */}
       <div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pb-2 pointer-events-none">
         <div className="pointer-events-auto">
-          <Dock 
-            items={[
-              { 
-                icon: <Clock className={`w-5 h-5 ${currentTab === 'home' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
-                label: 'Home', 
-                className: currentTab === 'home' ? 'active-tab' : '',
-                onClick: () => { setCurrentTab('home'); setProfileSub(null); setConfirmedBooking(null); } 
-              },
-              { 
-                icon: <Calendar className={`w-5 h-5 ${currentTab === 'book' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
-                label: 'Book', 
-                className: currentTab === 'book' ? 'active-tab' : '',
-                onClick: () => { setCurrentTab('book'); setProfileSub(null); setConfirmedBooking(null); } 
-              },
-              { 
-                icon: <History className={`w-5 h-5 ${currentTab === 'passes' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
-                label: 'Passes', 
-                className: currentTab === 'passes' ? 'active-tab' : '',
-                onClick: () => { setCurrentTab('passes'); setProfileSub(null); } 
-              },
-              { 
-                icon: <User className={`w-5 h-5 ${currentTab === 'profile' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
-                label: 'Profile', 
-                className: currentTab === 'profile' ? 'active-tab' : '',
-                onClick: () => { setCurrentTab('profile'); setProfileSub(null); setConfirmedBooking(null); } 
-              },
-            ]}
-            panelHeight={64}
-            baseItemSize={46}
-            magnification={64}
-          />
+          <Suspense fallback={null}>
+            <Dock 
+              items={[
+                { 
+                  icon: <Clock className={`w-5 h-5 ${currentTab === 'home' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
+                  label: 'Home', 
+                  className: currentTab === 'home' ? 'active-tab' : '',
+                  onClick: () => { setCurrentTab('home'); setProfileSub(null); setConfirmedBooking(null); } 
+                },
+                { 
+                  icon: <Calendar className={`w-5 h-5 ${currentTab === 'book' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
+                  label: 'Book', 
+                  className: currentTab === 'book' ? 'active-tab' : '',
+                  onClick: () => { setCurrentTab('book'); setProfileSub(null); setConfirmedBooking(null); } 
+                },
+                { 
+                  icon: <History className={`w-5 h-5 ${currentTab === 'passes' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
+                  label: 'Passes', 
+                  className: currentTab === 'passes' ? 'active-tab' : '',
+                  onClick: () => { setCurrentTab('passes'); setProfileSub(null); } 
+                },
+                { 
+                  icon: <User className={`w-5 h-5 ${currentTab === 'profile' ? 'text-[#22c55e]' : 'text-neutral-400'}`} />, 
+                  label: 'Profile', 
+                  className: currentTab === 'profile' ? 'active-tab' : '',
+                  onClick: () => { setCurrentTab('profile'); setProfileSub(null); setConfirmedBooking(null); } 
+                },
+              ]}
+              panelHeight={64}
+              baseItemSize={46}
+              magnification={64}
+            />
+          </Suspense>
         </div>
       </div>
 
