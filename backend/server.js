@@ -36,7 +36,7 @@ async function getAdminSettings() {
     console.error('Failed to load admin settings from DB, using fallback defaults:', err.message);
   }
   return {
-    turf_name: 'Golden Arm Turf',
+    turf_name: 'GOLDEN ARM',
     operating_hours_start: '06:00',
     operating_hours_end: '23:00',
     slot_duration_minutes: 60,

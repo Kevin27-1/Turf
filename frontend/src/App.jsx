@@ -86,7 +86,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState('home'); // 'home', 'book', 'passes', 'profile'
   const [profileSub, setProfileSub] = useState(null); // null, 'edit', 'faq', 'settings', 'help', 'cancel-board', 'invite', 'rate'
   const [publicSettings, setPublicSettings] = useState({
-    turf_name: 'Naduparambil Turf',
+    turf_name: 'GOLDEN ARM',
     sport_types_offered: ['Football', 'Cricket']
   });
 
@@ -188,11 +188,12 @@ export default function App() {
   const [showStickyCTA, setShowStickyCTA] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [activePolicyModal, setActivePolicyModal] = useState(null); // null | 'about' | 'contact' | 'terms' | 'privacy' | 'cancellation'
 
   const galleryImages = [
     { src: '/turf_real_day.webp', caption: 'Golden Arm Turf Pitch View (Day)' },
     { src: '/turf_real_night.webp', caption: 'Playing at Night Under Lights' },
-    { src: '/turf_grass.webp', caption: 'FIFA-certified Surface Close-up' }
+    { src: '/turf_grass.webp', caption: 'PREMIUM SYNTHETIC TURF' }
   ];
 
   // Restore session from localStorage on Mount
@@ -1164,29 +1165,20 @@ export default function App() {
                   Hi, {user.name}
                 </div>
               )}
-              {(() => {
-                const nameParts = publicSettings.turf_name.split(' ');
-                const firstName = nameParts[0] || 'Naduparambil';
-                const lastName = nameParts.slice(1).join(' ') || 'Turf';
-                return (
-                  <>
-                    <h1 className="text-[1.85rem] sm:text-[2.25rem] font-black tracking-wider uppercase text-white leading-none">
-                      {firstName}
-                    </h1>
-                    <h1 className="text-[3rem] sm:text-[3.5rem] font-black tracking-wider uppercase text-[#22c55e] leading-none mt-0.5">
-                      {lastName}
-                    </h1>
-                  </>
-                );
-              })()}
+              <h1 className="text-[1.85rem] sm:text-[2.25rem] font-black tracking-wider uppercase text-white leading-none">
+                GOLDEN ARM
+              </h1>
+              <h1 className="text-[3rem] sm:text-[3.5rem] font-black tracking-wider uppercase text-[#22c55e] leading-none mt-0.5">
+                SPORTS TURF
+              </h1>
               <p className="text-neutral-300 text-[9px] font-bold uppercase tracking-widest mt-2 max-w-[280px]">
-                {publicSettings.turf_name}'s Premier Turf Arena
+                Alakode's 5-a-side turf for football &amp; cricket.
               </p>
               <button
                 onClick={() => setCurrentTab('book')}
                 className="mt-6 px-8 py-3.5 bg-[#22c55e] text-black font-extrabold text-[11px] uppercase tracking-widest rounded-none border border-black hover:bg-[#1db252] transition shadow-[3px_3px_0px_#000000] active:translate-x-0.5 active:translate-y-0.5 active:shadow-[1px_1px_0px_#000]"
               >
-                Book Court Now &rarr;
+                BOOK A SLOT &rarr;
               </button>
             </div>
 
@@ -1201,30 +1193,21 @@ export default function App() {
                   Welcome back, {user.name}
                 </div>
               )}
-              {(() => {
-                const nameParts = publicSettings.turf_name.split(' ');
-                const firstName = nameParts[0] || 'Naduparambil';
-                const lastName = nameParts.slice(1).join(' ') || 'Turf';
-                return (
-                  <>
-                    <h1 className="text-[4rem] lg:text-[5rem] font-black tracking-wider uppercase text-white leading-none">
-                      {firstName}
-                    </h1>
-                    <h1 className="text-[5.5rem] lg:text-[6.5rem] font-black tracking-wider uppercase text-[#22c55e] leading-none">
-                      {lastName}
-                    </h1>
-                  </>
-                );
-              })()}
+              <h1 className="text-[4rem] lg:text-[5rem] font-black tracking-wider uppercase text-white leading-none">
+                GOLDEN ARM
+              </h1>
+              <h1 className="text-[5.5rem] lg:text-[6.5rem] font-black tracking-wider uppercase text-[#22c55e] leading-none">
+                SPORTS TURF
+              </h1>
               <p className="text-neutral-400 text-sm font-bold uppercase tracking-widest mt-4 max-w-md">
-                Alakode's Premier 5-a-side Turf — Football & Cricket
+                Alakode's 5-a-side turf for football &amp; cricket.
               </p>
               <div className="flex items-center gap-4 mt-8">
                 <button
                   onClick={() => setCurrentTab('book')}
                   className="px-10 py-4 bg-[#22c55e] text-black font-extrabold text-sm uppercase tracking-widest rounded-none border border-black hover:bg-[#1db252] transition shadow-[4px_4px_0px_#000000] hover:shadow-[2px_2px_0px_#000] active:translate-x-1 active:translate-y-1"
                 >
-                  Book a Slot &rarr;
+                  BOOK A SLOT &rarr;
                 </button>
                 <button
                   onClick={() => {
@@ -1232,7 +1215,7 @@ export default function App() {
                   }}
                   className="px-10 py-4 border border-neutral-700 text-neutral-300 font-bold text-sm uppercase tracking-widest rounded-none hover:border-white hover:text-white transition"
                 >
-                  See Gallery
+                  SEE GALLERY
                 </button>
               </div>
             </div>
@@ -1265,7 +1248,7 @@ export default function App() {
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-6">
                 {[
                   { icon: '💡', title: 'Floodlit turf', desc: 'Vibrant high-mast lights for night games' },
-                  { icon: '🌿', title: 'FIFA quality grass', desc: 'Resurfaced shock-absorbent synthetic surface' },
+                  { icon: '🌿', title: 'QUALITY SYNTHETIC SURFACE', desc: 'Resurfaced shock-absorbent synthetic surface' },
                   { icon: '🚿', title: 'Premium amenities', desc: 'Changing rooms, showers, and on-site parking' },
                   { icon: '⚡', title: 'Instant booking', desc: 'Book slots securely online in seconds' }
                 ].map((card, i) => (
@@ -1392,13 +1375,14 @@ export default function App() {
               {/* Pricing card */}
               <div className="px-6 py-6 md:px-0 md:py-0 bg-neutral-950/30 md:bg-transparent border-b border-neutral-900 md:border-0">
                 <h4 className="text-[9px] md:text-xs font-bold text-neutral-500 uppercase tracking-widest mb-4">
-                  GLANCE RATE &amp; INFO
+                  TURF BOOKING RATES
                 </h4>
                 <div className="border border-neutral-900 bg-neutral-950 p-4 md:p-8">
                   <div className="grid grid-cols-3 gap-2 text-center divide-x divide-neutral-900">
                     <div>
                       <span className="text-[8px] md:text-[10px] text-neutral-500 block uppercase font-bold">Rates</span>
                       <span className="text-xs md:text-xl font-black text-white mt-1 block">₹900 - 1200</span>
+                      <span className="text-[8px] text-neutral-500 block uppercase font-semibold mt-0.5">(60 Mins per slot)</span>
                     </div>
                     <div>
                       <span className="text-[8px] md:text-[10px] text-neutral-500 block uppercase font-bold">Hours</span>
@@ -1409,6 +1393,9 @@ export default function App() {
                       <span className="text-xs md:text-xl font-black text-white mt-1 block">Football / Cricket</span>
                     </div>
                   </div>
+                  <p className="text-[9px] text-neutral-400 mt-4 text-center font-medium border-t border-neutral-900 pt-3">
+                    Sports Turf Booking — Book our football and cricket turf by selecting your preferred available slot.
+                  </p>
                 </div>
               </div>
 
@@ -1431,7 +1418,7 @@ export default function App() {
                   </div>
                   <span className="text-[8px] uppercase font-bold text-neutral-500 block">Address</span>
                   <p className="text-[10px] md:text-xs font-bold text-white mt-0.5 leading-relaxed">
-                    Golden Arm Turf, Alakode, Kerala 670571
+                    Golden Arm Turf, Sports City Complex, Alakode, Kannur, Kerala – 670571
                   </p>
                   <a
                     href="https://maps.google.com/?q=Golden+Arm+Turf+Alakode"
@@ -1466,6 +1453,89 @@ export default function App() {
               </button>
             </div>
           )}
+
+          {/* H. FOOTER SECTION */}
+          <footer className="w-full bg-neutral-950 border-t border-neutral-900 py-10 px-6 md:px-16 pb-24">
+            <div className="md:max-w-7xl md:mx-auto grid grid-cols-1 md:grid-cols-4 gap-8">
+              
+              <div className="md:col-span-2 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-black text-white tracking-wider uppercase">GOLDEN ARM</span>
+                  <span className="bg-[#22c55e]/20 text-[#22c55e] border border-[#22c55e]/40 px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest">
+                    Sports Turf
+                  </span>
+                </div>
+                <p className="text-neutral-400 text-[10px] md:text-xs leading-relaxed max-w-md">
+                  Golden Arm Turf Pitch at Sports City Complex, Alakode. Premium 5-a-side artificial sports surface for football &amp; cricket. Open 24/7 with stadium floodlights and instant online booking.
+                </p>
+                <div className="text-[10px] text-neutral-500 font-medium">
+                  <span className="block text-white font-bold">Location &amp; Address:</span>
+                  Sports City Complex, Alakode, Kannur, Kerala – 670571
+                </div>
+              </div>
+
+              <div>
+                <h5 className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-3">
+                  Quick Navigation
+                </h5>
+                <ul className="space-y-2 text-xs font-bold text-neutral-400">
+                  <li>
+                    <button onClick={() => { setCurrentTab('home'); setProfileSub(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="hover:text-[#22c55e] transition cursor-pointer">
+                      Home
+                    </button>
+                  </li>
+                  <li>
+                    <button onClick={() => { setCurrentTab('book'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="hover:text-[#22c55e] transition cursor-pointer">
+                      Book a Slot
+                    </button>
+                  </li>
+                  <li>
+                    <button onClick={() => setActivePolicyModal('about')} className="hover:text-[#22c55e] transition cursor-pointer">
+                      About Us
+                    </button>
+                  </li>
+                  <li>
+                    <button onClick={() => setActivePolicyModal('contact')} className="hover:text-[#22c55e] transition cursor-pointer">
+                      Contact Us
+                    </button>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <h5 className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-3">
+                  Legal &amp; Policies
+                </h5>
+                <ul className="space-y-2 text-xs font-bold text-neutral-400">
+                  <li>
+                    <button onClick={() => setActivePolicyModal('terms')} className="hover:text-[#22c55e] transition cursor-pointer">
+                      Terms &amp; Conditions
+                    </button>
+                  </li>
+                  <li>
+                    <button onClick={() => setActivePolicyModal('privacy')} className="hover:text-[#22c55e] transition cursor-pointer">
+                      Privacy Policy
+                    </button>
+                  </li>
+                  <li>
+                    <button onClick={() => setActivePolicyModal('cancellation')} className="hover:text-[#22c55e] transition cursor-pointer">
+                      Cancellation &amp; Refund Policy
+                    </button>
+                  </li>
+                </ul>
+              </div>
+
+            </div>
+
+            <div className="md:max-w-7xl md:mx-auto border-t border-neutral-900 mt-8 pt-6 flex flex-col md:flex-row justify-between items-center text-[10px] text-neutral-600 font-bold gap-2">
+              <div>
+                &copy; {new Date().getFullYear()} GOLDEN ARM. All rights reserved. NIC 93110 – Operation of sports facilities.
+              </div>
+              <div className="text-neutral-500">
+                Sports City Complex, Alakode, Kannur, Kerala – 670571
+              </div>
+            </div>
+          </footer>
 
         </main>
       )}
@@ -2966,6 +3036,118 @@ export default function App() {
             <span className="text-[9px] text-neutral-600 uppercase tracking-widest font-bold mt-1 block">
               Golden Arm Turf • Alakode
             </span>
+          </div>
+        </div>
+      )}
+
+      {/* --- POLICY / LEGAL MODAL OVERLAY --- */}
+      {activePolicyModal && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="absolute inset-0" onClick={() => setActivePolicyModal(null)}></div>
+          <div className="relative z-10 w-full max-w-2xl bg-neutral-950 border border-neutral-800 p-6 md:p-8 max-h-[85vh] overflow-y-auto no-scrollbar shadow-2xl">
+            <div className="flex items-center justify-between border-b border-neutral-900 pb-4 mb-6">
+              <div>
+                <span className="text-[9px] font-bold text-[#22c55e] uppercase tracking-widest block">
+                  GOLDEN ARM • Business Information
+                </span>
+                <h3 className="text-lg md:text-xl font-black text-white uppercase tracking-tight mt-0.5">
+                  {activePolicyModal === 'about' && 'About Golden Arm Sports Turf'}
+                  {activePolicyModal === 'contact' && 'Contact Us'}
+                  {activePolicyModal === 'terms' && 'Terms & Conditions'}
+                  {activePolicyModal === 'privacy' && 'Privacy Policy'}
+                  {activePolicyModal === 'cancellation' && 'Cancellation & Refund Policy'}
+                </h3>
+              </div>
+              <button 
+                onClick={() => setActivePolicyModal(null)}
+                className="p-2 border border-neutral-800 text-neutral-400 hover:text-white hover:border-neutral-600 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs text-neutral-300 leading-relaxed">
+              {activePolicyModal === 'about' && (
+                <>
+                  <p>
+                    <strong className="text-white">GOLDEN ARM</strong> is a premium sports turf facility operating at Sports City Complex, Alakode, Kannur, Kerala – 670571.
+                  </p>
+                  <p>
+                    <strong>Business Classification:</strong> NIC Activity 93110 – Operation of sports facilities. Registered Enterprise Name: GOLDEN ARM.
+                  </p>
+                  <p>
+                    Our facility features high-grade shock-absorbent artificial grass turf, high-mast floodlights for evening and night play, clean amenities, changing rooms, and on-site parking for players.
+                  </p>
+                  <p>
+                    We offer online slot booking for 5-a-side Football and Cricket matches 24 hours a day, 7 days a week.
+                  </p>
+                </>
+              )}
+
+              {activePolicyModal === 'contact' && (
+                <>
+                  <div className="bg-neutral-900/40 border border-neutral-800 p-4 space-y-2">
+                    <p className="font-bold text-white uppercase text-sm">GOLDEN ARM SPORTS TURF</p>
+                    <p><strong className="text-neutral-400">Enterprise Name:</strong> GOLDEN ARM</p>
+                    <p><strong className="text-neutral-400">Facility Type:</strong> Physical Sports Turf (Football &amp; Cricket)</p>
+                    <p><strong className="text-neutral-400">Address:</strong> Sports City Complex, Alakode, Kannur, Kerala – 670571</p>
+                    <p><strong className="text-neutral-400">Operating Hours:</strong> 24 Hours / 7 Days a week</p>
+                    <p><strong className="text-neutral-400">Service:</strong> Sports Turf Slot Reservation</p>
+                  </div>
+                  <p className="text-[11px] text-neutral-400">
+                    For slot availability, group bookings, or venue inquiries, please visit our venue or book directly online via our slot reservation system.
+                  </p>
+                </>
+              )}
+
+              {activePolicyModal === 'terms' && (
+                <>
+                  <p><strong className="text-white">1. Service Definition</strong><br/>
+                  GOLDEN ARM provides physical sports turf slot reservation services at Sports City Complex, Alakode, Kannur, Kerala – 670571. Bookings are strictly for physical sports recreation (Football and Cricket).</p>
+                  
+                  <p><strong className="text-white">2. Slot Reservations &amp; Rules</strong><br/>
+                  Players must select an available 60-minute time slot and complete customer details. Players are expected to arrive 10 minutes before their scheduled slot start time. Footwear appropriate for synthetic turf (turf shoes or flat sports shoes; strictly no metal studs) must be worn.</p>
+                  
+                  <p><strong className="text-white">3. Pricing &amp; Venue Rules</strong><br/>
+                  Rates range between ₹900 – ₹1200 per 60-minute slot. Advance payments reserve the slot, and remaining balance payments are settled at the venue prior to play. Unsportsmanlike conduct, venue damage, or illegal activities are strictly prohibited.</p>
+                </>
+              )}
+
+              {activePolicyModal === 'privacy' && (
+                <>
+                  <p><strong className="text-white">1. Data Collection</strong><br/>
+                  GOLDEN ARM collects customer names and phone numbers strictly for slot reservation, identity verification, OTP authentication, and sending booking confirmations.</p>
+                  
+                  <p><strong className="text-white">2. Use of Information</strong><br/>
+                  Collected information is used exclusively to facilitate your physical sports turf booking and manage your court reservation access. We do not sell, trade, or share your personal data with unauthorized third parties.</p>
+                  
+                  <p><strong className="text-white">3. Data Security</strong><br/>
+                  We implement secure database standards to protect customer contact information against unauthorized access.</p>
+                </>
+              )}
+
+              {activePolicyModal === 'cancellation' && (
+                <>
+                  <p><strong className="text-white">1. Slot Cancellation</strong><br/>
+                  Customers may cancel booked slots online or by contacting administration. Cancellations made prior to the configured window [Default: 4 hours before slot start time] are eligible for slot rescheduling or refund processing.</p>
+                  
+                  <p><strong className="text-white">2. Refund Processing</strong><br/>
+                  Advance payments for validly cancelled slots will be processed back via the original payment mode or credited as booking passes as per enterprise rules [Owner Policy Input: Refund processing takes 5-7 business days].</p>
+                  
+                  <p><strong className="text-white">3. No-Show &amp; Venue Policy</strong><br/>
+                  Failure to arrive for a reserved slot without prior notice may result in forfeiture of the advance deposit. GOLDEN ARM reserves the right to reschedule slots due to extreme weather or force majeure conditions.</p>
+                </>
+              )}
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-neutral-900 flex justify-end">
+              <button
+                onClick={() => setActivePolicyModal(null)}
+                className="px-6 py-2.5 bg-[#22c55e] text-black font-extrabold text-xs uppercase tracking-wider rounded-none hover:bg-[#1db252] transition cursor-pointer"
+              >
+                Close Policy
+              </button>
+            </div>
           </div>
         </div>
       )}
