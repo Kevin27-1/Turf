@@ -1,5 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { getFirebaseAuth } from './firebase.js';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 const BounceCards = lazy(() => import('./BounceCards.jsx'));
 const Dock = lazy(() => import('./Dock.jsx'));
@@ -3263,6 +3264,7 @@ export default function App() {
       )}
 
 
+    <SpeedInsights />
     </div>
     </div>
   );
