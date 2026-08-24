@@ -1,5 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { getFirebaseAuth } from './firebase.js';
+import { Analytics } from '@vercel/analytics/react';
 
 const BounceCards = lazy(() => import('./BounceCards.jsx'));
 const Dock = lazy(() => import('./Dock.jsx'));
@@ -4579,6 +4580,7 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
           </span>
         </div>
       </div>
+      <Analytics />
     </div>
   );
 }
