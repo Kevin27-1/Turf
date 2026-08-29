@@ -656,7 +656,7 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
 
   } catch (err) {
     console.error('Error holding slot:', err);
-    res.status(500).json({ error: 'Failed to initiate hold and payment flow' });
+    res.status(500).json({ error: err.message || 'Failed to initiate hold and payment flow' });
   }
 });
 

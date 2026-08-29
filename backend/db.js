@@ -496,7 +496,8 @@ export const query = async (text, params = []) => {
               const data = doc.data();
               const isAvailable = data.status === 'available';
               const isHoldExpired = data.status === 'held' && data.held_until && data.held_until < params[3];
-              if (isAvailable || isHoldExpired) {
+              const isHeldBySameUser = data.status === 'held' && data.held_by_user_id === params[1];
+              if (isAvailable || isHoldExpired || isHeldBySameUser) {
                 transaction.update(docRef, {
                   status: 'held',
                   held_until: params[0],
@@ -544,10 +545,22 @@ export const query = async (text, params = []) => {
         return { rows: doc.exists ? [{ id: doc.id, ...doc.data() }] : [] };
       }
       
-      // 10. DELETE FROM bookings WHERE id = $1
-      if (trimmedText.startsWith('DELETE FROM bookings WHERE id =')) {
-        await firestoreDb.collection('bookings').doc(params[0]).delete();
-        return { rows: [] };
+      // 10. DELETE FROM bookings
+      if (trimmedText.startsWith('DELETE FROM bookings')) {
+        if (trimmedText.includes('WHERE id =')) {
+          await firestoreDb.collection('bookings').doc(params[0]).delete();
+          return { rows: [] };
+        } else if (trimmedText.includes('slot_id =')) {
+          const snap = await firestoreDb.collection('bookings')
+            .where('slot_id', '==', params[0])
+            .where('user_id', '==', params[1])
+            .where('booking_status', '==', 'pending')
+            .get();
+          const batch = firestoreDb.batch();
+          snap.docs.forEach(d => batch.delete(d.ref));
+          if (snap.size > 0) await batch.commit();
+          return { rows: [] };
+        }
       }
 
       // 10b. DELETE FROM slots WHERE status = 'available' AND date >= $1
