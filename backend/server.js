@@ -568,9 +568,9 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
     const heldUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minutes hold
     const now = new Date().toISOString();
 
-    // 2. Try to hold the slot atomically (covers race conditions)
+    // 2. Try to hold the slot atomically (allows fresh available slots, expired holds, or re-holding by the same user)
     const holdResult = await query(
-      "UPDATE slots SET status = 'held', held_until = $1, held_by_user_id = $2 WHERE id = $3 AND (status = 'available' OR (status = 'held' AND held_until < $4))",
+      "UPDATE slots SET status = 'held', held_until = $1, held_by_user_id = $2 WHERE id = $3 AND (status = 'available' OR (status = 'held' AND (held_until < $4 OR held_by_user_id = $2)))",
       [heldUntil, user_id, slot_id, now]
     );
 
@@ -612,7 +612,9 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
       return res.status(500).json({ error: cfErr.message || 'Failed to initialize Cashfree payment gateway' });
     }
 
-    // 5. Insert pending booking record
+    // 5. Clean up any previous pending booking for this user & slot, then insert new pending booking
+    await query("DELETE FROM bookings WHERE slot_id = $1 AND user_id = $2 AND booking_status = 'pending'", [slot_id, user_id]);
+
     const bookingId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     const deviceType = req.body.device_type === 'desktop' ? 'desktop' : 'mobile';
