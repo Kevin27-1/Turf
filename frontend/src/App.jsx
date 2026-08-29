@@ -242,6 +242,43 @@ export default function App() {
     }
   }, []);
 
+  // Handle return from payment gateway (Cashfree redirect with ?order_id=...)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlOrderId = urlParams.get('order_id');
+    if (urlOrderId) {
+      const verifyFromRedirect = async () => {
+        const token = localStorage.getItem('jwt_token');
+        if (!token) return;
+        try {
+          setBookingLoading(true);
+          const verifyRes = await fetch('/api/bookings/verify', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ order_id: urlOrderId })
+          });
+          const verifyData = await verifyRes.json();
+          if (verifyData && verifyData.success && verifyData.booking) {
+            setConfirmedBooking(verifyData.booking);
+            setCurrentTab('book');
+            await fetchBookings();
+            if (selectedDate) fetchSlots(selectedDate, true);
+          }
+        } catch (e) {
+          console.error('Failed to auto-verify order from redirect:', e);
+        } finally {
+          setBookingLoading(false);
+          // Clean up URL query parameters cleanly
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      };
+      verifyFromRedirect();
+    }
+  }, [selectedDate]);
+
   // Fetch slots whenever selectedDate changes and tab is 'book'
   useEffect(() => {
     if (selectedDate && currentTab === 'book') {
@@ -452,14 +489,14 @@ export default function App() {
     }
   };
 
-  const loadRazorpayScript = () => {
+  const loadCashfreeScript = () => {
     return new Promise((resolve) => {
-      if (window.Razorpay) {
+      if (window.Cashfree) {
         resolve(true);
         return;
       }
       const script = document.createElement('script');
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.src = 'https://sdk.cashfree.com/js/v3/cashfree.js';
       script.async = true;
       script.onload = () => resolve(true);
       script.onerror = () => resolve(false);
@@ -506,6 +543,8 @@ export default function App() {
 
       setHoldData({
         orderId: data.order_id,
+        paymentSessionId: data.payment_session_id,
+        cfEnvironment: data.cf_environment || 'sandbox',
         bookingId: data.booking_id,
         totalAmount: data.total_amount,
         advanceAmount: data.advance_amount,
@@ -534,7 +573,7 @@ export default function App() {
 
   const handleBookingSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (!holdData) return;
+    if (!holdData || !holdData.paymentSessionId) return;
 
     if (holdTimeLeft <= 0) {
       handleCloseBooking();
@@ -548,81 +587,68 @@ export default function App() {
       const token = localStorage.getItem('jwt_token');
       if (!token) throw new Error('Authentication required.');
 
-      // 1. Fetch Razorpay config
-      const configRes = await fetch('/api/config/razorpay-key');
-      const configData = await configRes.json();
-      if (!configRes.ok) throw new Error('Failed to retrieve payment gateway configuration.');
-
-      // 2. Load Razorpay script
-      const isScriptLoaded = await loadRazorpayScript();
-      if (!isScriptLoaded) {
-        throw new Error('Razorpay SDK failed to load. Please check your internet connection.');
+      // 1. Load Cashfree Web SDK v3
+      const isScriptLoaded = await loadCashfreeScript();
+      if (!isScriptLoaded || !window.Cashfree) {
+        throw new Error('Cashfree Payment Gateway SDK failed to load. Please check your internet connection.');
       }
 
-      // 3. Open Razorpay checkout modal
-      const options = {
-        key: configData.keyId,
-        amount: holdData.advanceAmount * 100, // in paise
-        currency: 'INR',
-        name: publicSettings.turf_name,
-        description: 'Advance Payment for Turf Reservation',
-        order_id: holdData.orderId,
-        handler: async function (response) {
-          setBookingLoading(true);
-          setBookingError('');
-          try {
-            // 4. Verify payment with backend
-            const verifyRes = await fetch('/api/bookings/verify', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              },
-              body: JSON.stringify({
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature
-              })
-            });
+      // 2. Initialize Cashfree instance
+      const cashfree = window.Cashfree({
+        mode: holdData.cfEnvironment === 'production' ? 'production' : 'sandbox'
+      });
 
-            const verifyData = await verifyRes.json();
-            if (!verifyRes.ok) {
-              throw new Error(verifyData.error || 'Payment verification failed.');
-            }
+      // 3. Trigger Cashfree Checkout in modal mode
+      const result = await cashfree.checkout({
+        paymentSessionId: holdData.paymentSessionId,
+        redirectTarget: '_modal'
+      });
 
-            // 5. Update state
-            const updatedBookings = [verifyData.booking, ...myBookings];
-            setMyBookings(updatedBookings);
-            setConfirmedBooking(verifyData.booking);
-            setCurrentTab('passes');
-            setProfileSub(null);
-            
-            // Clean up modal states but keep confirmedBooking
-            setSelectedSlot(null);
-            setHoldData(null);
-          } catch (err) {
-            console.error(err);
-            setBookingError(err.message || 'Signature verification failed.');
-          } finally {
-            setBookingLoading(false);
-          }
-        },
-        prefill: {
-          name: user?.name || '',
-          contact: user?.phone || ''
-        },
-        theme: {
-          color: '#22c55e'
-        },
-        modal: {
-          ondismiss: function () {
-            setBookingLoading(false);
-          }
+      if (result && result.error) {
+        console.warn('[CASHFREE CHECKOUT DISMISS/ERROR]:', result.error);
+        setBookingLoading(false);
+        if (result.error.message && result.error.code !== 'PAYMENT_CANCELLED') {
+          setBookingError(result.error.message);
         }
-      };
+        return;
+      }
 
-      const paymentObject = new window.Razorpay(options);
-      paymentObject.open();
+      // 4. Verify payment with backend
+      setBookingLoading(true);
+      setBookingError('');
+
+      const verifyRes = await fetch('/api/bookings/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          order_id: holdData.orderId
+        })
+      });
+
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok) {
+        throw new Error(verifyData.error || 'Payment verification failed.');
+      }
+
+      // 5. Update state on successful confirmation and redirect to Booking section
+      const updatedBookings = [verifyData.booking, ...myBookings];
+      setMyBookings(updatedBookings);
+      setConfirmedBooking(verifyData.booking);
+      setCurrentTab('book'); // Redirect directly to the booking section!
+      setProfileSub(null);
+      
+      // Clean up modal states but keep confirmedBooking
+      setSelectedSlot(null);
+      setHoldData(null);
+
+      // Refresh slots and bookings in background
+      await fetchBookings();
+      if (selectedDate) {
+        fetchSlots(selectedDate, true);
+      }
 
     } catch (err) {
       console.error(err);
@@ -1145,9 +1171,9 @@ export default function App() {
               <img 
                 src="/turf_hero.webp" 
                 alt="Golden Arm Turf" 
-                width="1200"
-                height="520"
-                fetchpriority="high"
+                width="1200" 
+                height="520" 
+                fetchPriority="high"
                 decoding="async"
                 className="w-full h-full object-cover animate-fade-scale"
               />
@@ -1543,6 +1569,74 @@ export default function App() {
       {/* 2. BOOK TAB */}
       {currentTab === 'book' && (
         <main className="flex-1 w-full flex flex-col px-6">
+          {/* Confirmed Booking Success Modal Overlay in Booking Section */}
+          {confirmedBooking && (
+            <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="w-full max-w-md bg-neutral-950 border border-[#22c55e]/40 p-6 shadow-2xl relative">
+                <div className="flex items-center justify-between border-b border-neutral-900 pb-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5 text-[#22c55e]" />
+                    <span className="text-xs font-black text-white uppercase tracking-wider">
+                      Booking Confirmed!
+                    </span>
+                  </div>
+                  <button 
+                    onClick={() => setConfirmedBooking(null)}
+                    className="p-1 border border-neutral-800 text-neutral-400 hover:text-white transition cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs mb-5">
+                  <div className="p-3 bg-[#22c55e]/10 border border-[#22c55e]/20 text-[10px] text-[#22c55e] font-bold uppercase tracking-wider">
+                    Slot successfully booked! Payment verified via Cashfree.
+                  </div>
+                  <div className="bg-neutral-900/40 p-3.5 border border-neutral-900 space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-[10px] text-neutral-500 font-bold uppercase">Date</span>
+                      <span className="font-bold text-white">
+                        {formatDateDisplayLong(confirmedBooking.slot?.date || confirmedBooking.date)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[10px] text-neutral-500 font-bold uppercase">Time Duration</span>
+                      <span className="font-bold text-[#22c55e]">
+                        {formatTime12h(confirmedBooking.slot?.start_time || confirmedBooking.start_time)} - {formatTime12h(confirmedBooking.slot?.end_time || confirmedBooking.end_time)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[10px] text-neutral-500 font-bold uppercase">Online Advance Paid</span>
+                      <span className="font-bold text-[#22c55e]">₹{confirmedBooking.advance_paid_amount}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[10px] text-neutral-500 font-bold uppercase">Due at Venue</span>
+                      <span className="font-bold text-amber-500">₹{confirmedBooking.balance_amount}</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-neutral-400">
+                    Your court booking is reserved at Golden Arm Turf. Present this confirmation upon arrival.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => { setCurrentTab('passes'); }}
+                    className="py-3 border border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/10 font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+                  >
+                    View Voucher
+                  </button>
+                  <button
+                    onClick={() => setConfirmedBooking(null)}
+                    className="py-3 bg-[#22c55e] text-black font-extrabold text-xs uppercase tracking-wider hover:bg-[#1db252] transition cursor-pointer"
+                  >
+                    Book More Slots
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="mb-6">
             <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 block mb-2 px-1">
               Select Booking Date
@@ -1747,14 +1841,14 @@ export default function App() {
                     <div>
                       <span className="text-[9px] uppercase font-bold tracking-wider text-neutral-500 block">Date</span>
                       <span className="font-bold text-white mt-0.5 block">
-                        {formatDateDisplayLong(confirmedBooking.slot.date)}
+                        {formatDateDisplayLong(confirmedBooking.slot?.date || confirmedBooking.date)}
                       </span>
                     </div>
 
                     <div>
                       <span className="text-[9px] uppercase font-bold tracking-wider text-neutral-500 block">Time Duration</span>
                       <span className="font-bold text-[#22c55e] mt-0.5 block">
-                        {formatTime12h(confirmedBooking.slot.start_time)} - {formatTime12h(confirmedBooking.slot.end_time)}
+                        {formatTime12h(confirmedBooking.slot?.start_time || confirmedBooking.start_time)} - {formatTime12h(confirmedBooking.slot?.end_time || confirmedBooking.end_time)}
                       </span>
                     </div>
 
@@ -1768,7 +1862,7 @@ export default function App() {
                       <div>
                         <span className="text-[9px] uppercase font-bold tracking-wider text-neutral-500 block">Total Court Price</span>
                         <span className="font-bold text-white mt-0.5 block">
-                          ₹{confirmedBooking.total_amount || confirmedBooking.slot.price}
+                          ₹{confirmedBooking.total_amount || confirmedBooking.slot?.price || confirmedBooking.slot_price || 1200}
                         </span>
                       </div>
                     </div>

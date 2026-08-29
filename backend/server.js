@@ -7,19 +7,115 @@ import bcrypt from 'bcryptjs';
 import admin from 'firebase-admin';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import Razorpay from 'razorpay';
 import { query, getDbEngine, getDbDiagnostics } from './db.js';
 import { seedSlots, ensureSlotsForDate } from './seed.js';
 import { authenticateUser } from './auth.js';
 
 dotenv.config();
 
-// Razorpay SDK Setup
-// NOTE: For live payments, configure RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in Vercel dashboard env variables.
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholderKeyId',
-  key_secret: process.env.RAZORPAY_KEY_SECRET || 'placeholderKeySecret',
-});
+// Cashfree PG Setup
+const CASHFREE_APP_ID = process.env.CASHFREE_APP_ID || '';
+const CASHFREE_SECRET_KEY = process.env.CASHFREE_SECRET_KEY || '';
+const CASHFREE_API_VERSION = process.env.CASHFREE_API_VERSION || '2023-08-01';
+
+const isCashfreeTest = (process.env.CASHFREE_ENV || (CASHFREE_APP_ID.startsWith('TEST') ? 'TEST' : 'PROD')).toUpperCase() === 'TEST';
+const CASHFREE_BASE_URL = isCashfreeTest 
+  ? 'https://sandbox.cashfree.com/pg' 
+  : 'https://api.cashfree.com/pg';
+
+async function createCashfreeOrder({ orderId, orderAmount, customerId, customerName, customerEmail, customerPhone, orderNote }) {
+  const url = `${CASHFREE_BASE_URL}/orders`;
+  const sanitizedPhone = (customerPhone || '9876543210').replace(/[^0-9]/g, '').slice(-10) || '9876543210';
+  const sanitizedCustomerId = (customerId || 'guest_player').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 45);
+
+  // Cashfree production requires a valid HTTPS return_url
+  let baseUrl = process.env.FRONTEND_URL || 'https://goldenarm.in';
+  if (!baseUrl.startsWith('https://')) {
+    baseUrl = 'https://goldenarm.in';
+  }
+  const returnUrl = `${baseUrl}/?order_id=${orderId}`;
+
+  const payload = {
+    order_id: orderId,
+    order_amount: Number(orderAmount),
+    order_currency: 'INR',
+    customer_details: {
+      customer_id: sanitizedCustomerId,
+      customer_name: customerName || 'Golden Arm Player',
+      customer_email: customerEmail || 'player@goldenarm.in',
+      customer_phone: sanitizedPhone
+    },
+    order_meta: {
+      return_url: returnUrl
+    },
+    order_note: orderNote || 'Advance payment for Golden Arm Turf reservation'
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'x-client-id': CASHFREE_APP_ID,
+      'x-client-secret': CASHFREE_SECRET_KEY,
+      'x-api-version': CASHFREE_API_VERSION,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.message || data.error || 'Cashfree failed to create order session');
+  }
+  return data;
+}
+
+async function verifyCashfreeOrder(orderId) {
+  const url = `${CASHFREE_BASE_URL}/orders/${orderId}`;
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'x-client-id': CASHFREE_APP_ID,
+      'x-client-secret': CASHFREE_SECRET_KEY,
+      'x-api-version': CASHFREE_API_VERSION
+    }
+  });
+
+  const orderData = await res.json();
+  if (!res.ok) {
+    throw new Error(orderData.message || 'Failed to verify Cashfree order');
+  }
+
+  let paymentId = null;
+  let paymentMethod = null;
+  try {
+    const payRes = await fetch(`${CASHFREE_BASE_URL}/orders/${orderId}/payments`, {
+      method: 'GET',
+      headers: {
+        'x-client-id': CASHFREE_APP_ID,
+        'x-client-secret': CASHFREE_SECRET_KEY,
+        'x-api-version': CASHFREE_API_VERSION
+      }
+    });
+    if (payRes.ok) {
+      const payments = await payRes.json();
+      if (Array.isArray(payments) && payments.length > 0) {
+        const successPay = payments.find(p => p.payment_status === 'SUCCESS') || payments[0];
+        paymentId = String(successPay.cf_payment_id || successPay.payment_id || '');
+        paymentMethod = successPay.payment_method ? Object.keys(successPay.payment_method)[0] : 'Online';
+      }
+    }
+  } catch (e) {
+    console.warn('Could not fetch Cashfree payments list:', e.message);
+  }
+
+  return {
+    orderStatus: orderData.order_status,
+    orderAmount: orderData.order_amount,
+    paymentId: paymentId || `cf_pay_${orderId}`,
+    paymentMethod,
+    raw: orderData
+  };
+}
 
 async function getAdminSettings() {
   try {
@@ -327,10 +423,13 @@ app.get('/api/slots', async (req, res) => {
   }
 });
 
-// GET /api/config/razorpay-key
-app.get('/api/config/razorpay-key', (req, res) => {
-  // Returns the public Key ID for the frontend to initialize checkout
-  res.json({ keyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_placeholderKeyId' });
+// GET /api/config/cashfree (and fallback /api/config/payment-key, /api/config/razorpay-key)
+app.get(['/api/config/cashfree', '/api/config/payment-key', '/api/config/razorpay-key'], (req, res) => {
+  res.json({
+    appId: CASHFREE_APP_ID,
+    keyId: CASHFREE_APP_ID,
+    environment: isCashfreeTest ? 'sandbox' : 'production'
+  });
 });
 
 // GET /api/bookings
@@ -453,7 +552,7 @@ app.get('/api/reviews', async (req, res) => {
   });
 });
 
-// POST /api/bookings/hold (Atomically hold a slot and create a Razorpay order)
+// POST /api/bookings/hold (Atomically hold a slot and create a Cashfree order)
 app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
   const { slot_id } = req.body;
   const user_id = req.user.id;
@@ -482,7 +581,7 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
     // 3. Fetch slot price to calculate advance payment details
     const slotRes = await query('SELECT price, date, start_time FROM slots WHERE id = $1', [slot_id]);
     if (slotRes.rows.length === 0) {
-      // Revert hold if slot was not found (should not happen)
+      // Revert hold if slot was not found
       await query("UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [slot_id]);
       return res.status(404).json({ error: 'Slot not found' });
     }
@@ -494,21 +593,23 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
     const advanceAmount = Math.round((totalPrice * advPct) / 100);
     const balanceAmount = totalPrice - advanceAmount;
 
-    // 4. Create Razorpay order (amount in paise, e.g. ₹400 = 40000 paise)
-    const options = {
-      amount: advanceAmount * 100,
-      currency: 'INR',
-      receipt: `rcpt_${slot_id.substring(0, 8)}_${Date.now().toString().slice(-6)}`
-    };
-
-    let order;
+    // 4. Create Cashfree order session
+    const cfOrderId = `cf_${slot_id.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8)}_${Date.now().toString().slice(-8)}`;
+    let cfOrder;
     try {
-      order = await razorpay.orders.create(options);
-    } catch (rzpErr) {
-      console.error('[RAZORPAY ERROR] Failed to create order:', rzpErr);
+      cfOrder = await createCashfreeOrder({
+        orderId: cfOrderId,
+        orderAmount: advanceAmount,
+        customerId: user_id,
+        customerName: req.user?.name || 'Player',
+        customerPhone: req.user?.phone || '9876543210',
+        orderNote: `Slot booking ${slot.date} ${slot.start_time} (Golden Arm Turf)`
+      });
+    } catch (cfErr) {
+      console.error('[CASHFREE ERROR] Failed to create order session:', cfErr);
       // Revert hold
       await query("UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [slot_id]);
-      return res.status(500).json({ error: 'Failed to initialize payment gateway' });
+      return res.status(500).json({ error: cfErr.message || 'Failed to initialize Cashfree payment gateway' });
     }
 
     // 5. Insert pending booking record
@@ -531,7 +632,7 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
         advanceAmount,
         0, // Not paid yet
         totalPrice, // Remaining balance starts as total_amount
-        order.id,
+        cfOrder.order_id,
         false, // payment_verified
         'pending', // booking_status
         deviceType
@@ -540,7 +641,9 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      order_id: order.id,
+      order_id: cfOrder.order_id,
+      payment_session_id: cfOrder.payment_session_id,
+      cf_environment: isCashfreeTest ? 'sandbox' : 'production',
       booking_id: bookingId,
       total_amount: totalPrice,
       advance_amount: advanceAmount,
@@ -555,35 +658,32 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
   }
 });
 
-// POST /api/bookings/verify (Verify Razorpay signature and confirm the booking)
+// POST /api/bookings/verify (Verify Cashfree order status and confirm the booking)
 app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
-  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+  const order_id = req.body.order_id || req.body.razorpay_order_id || req.body.cf_order_id;
   const user_id = req.user.id;
 
-  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
-    return res.status(400).json({ error: 'Missing payment signature verification parameters' });
+  if (!order_id) {
+    return res.status(400).json({ error: 'order_id is required for payment verification' });
   }
 
   try {
-    // 1. Verify Razorpay cryptographic signature (HMAC SHA-256)
-    // Note: uses process.env.RAZORPAY_KEY_SECRET from Vercel
-    const secret = process.env.RAZORPAY_KEY_SECRET || 'placeholderKeySecret';
-    const shasum = crypto.createHmac('sha256', secret);
-    shasum.update(`${razorpay_order_id}|${razorpay_payment_id}`);
-    const digest = shasum.digest('hex');
-
-    if (digest !== razorpay_signature) {
-      return res.status(400).json({ error: 'Signature verification failed. Payment was not authentic.' });
+    // 1. Verify with Cashfree PG API directly
+    const cfVerification = await verifyCashfreeOrder(order_id);
+    if (cfVerification.orderStatus !== 'PAID') {
+      return res.status(400).json({ 
+        error: `Payment is not completed. Current order status: ${cfVerification.orderStatus}` 
+      });
     }
 
-    // 2. Fetch the corresponding pending booking (joining slots to calculate deadline)
+    // 2. Fetch the corresponding pending booking
     const bookingCheck = await query(
       `SELECT b.id, b.slot_id, b.user_id, b.total_amount, b.advance_amount,
               s.date, s.start_time
        FROM bookings b 
        JOIN slots s ON b.slot_id = s.id
        WHERE b.razorpay_order_id = $1`,
-      [razorpay_order_id]
+      [order_id]
     );
 
     if (bookingCheck.rows.length === 0) {
@@ -597,7 +697,6 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden: You cannot confirm a booking for another user.' });
     }
 
-    // No cancellation deadline (cancellations and refunds disabled)
     const cancellationDeadline = null;
 
     // 3. Update database status in a transaction
@@ -605,13 +704,14 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
 
     const advancePaid = booking.advance_amount;
     const balance = booking.total_amount - advancePaid;
+    const paymentId = cfVerification.paymentId || req.body.payment_id || req.body.cf_payment_id || `cf_${order_id}`;
 
-    // Confirm booking, payment details, and cancellation deadline
+    // Confirm booking
     await query(
       `UPDATE bookings 
        SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5, cancellation_deadline = $6 
        WHERE razorpay_order_id = $7`,
-      [true, advancePaid, balance, 'confirmed', razorpay_payment_id, cancellationDeadline, razorpay_order_id]
+      [true, advancePaid, balance, 'confirmed', paymentId, cancellationDeadline, order_id]
     );
 
     // Confirm slot status is permanently booked
@@ -650,9 +750,10 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
       balance_amount: updatedBooking.balance_amount,
       booking_status: updatedBooking.booking_status,
       cancellation_deadline: updatedBooking.cancellation_deadline,
-      cancelled_at: updatedBooking.cancelled_at,
-      refund_amount: updatedBooking.refund_amount,
-      refund_status: updatedBooking.refund_status,
+      date: updatedBooking.date,
+      start_time: updatedBooking.start_time,
+      end_time: updatedBooking.end_time,
+      slot_price: updatedBooking.price,
       slot: {
         date: updatedBooking.date,
         start_time: updatedBooking.start_time,
@@ -663,16 +764,47 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: 'Payment verified and booking confirmed',
+      message: 'Cashfree payment verified successfully! Your booking is confirmed.',
       booking: formattedBooking
     });
-
   } catch (err) {
-    try {
-      await query('ROLLBACK');
-    } catch (rbErr) {}
-    console.error('Error verifying payment:', err);
-    res.status(500).json({ error: 'Failed to verify payment and complete booking process' });
+    await query('ROLLBACK');
+    console.error('Error verifying Cashfree booking:', err);
+    res.status(500).json({ error: err.message || 'Payment verification failed' });
+  }
+});
+
+// POST /api/webhooks/cashfree (Optional Cashfree Webhook listener for asynchronous events)
+app.post('/api/webhooks/cashfree', express.json(), async (req, res) => {
+  try {
+    const payload = req.body;
+    const orderData = payload?.data?.order;
+    const paymentData = payload?.data?.payment;
+
+    if (orderData && paymentData && paymentData.payment_status === 'SUCCESS') {
+      const orderId = orderData.order_id;
+      const paymentId = String(paymentData.cf_payment_id || paymentData.payment_id || `cf_${orderId}`);
+
+      const bookingRes = await query('SELECT id, slot_id, total_amount, advance_amount, booking_status FROM bookings WHERE razorpay_order_id = $1', [orderId]);
+      if (bookingRes.rows.length > 0) {
+        const booking = bookingRes.rows[0];
+        if (booking.booking_status !== 'confirmed') {
+          const advancePaid = booking.advance_amount;
+          const balance = booking.total_amount - advancePaid;
+          await query('BEGIN');
+          await query(
+            `UPDATE bookings SET payment_verified = true, advance_paid_amount = $1, balance_amount = $2, booking_status = 'confirmed', razorpay_payment_id = $3 WHERE razorpay_order_id = $4`,
+            [advancePaid, balance, paymentId, orderId]
+          );
+          await query("UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [booking.slot_id]);
+          await query('COMMIT');
+        }
+      }
+    }
+    res.status(200).json({ status: 'OK' });
+  } catch (err) {
+    console.error('Error processing Cashfree webhook:', err);
+    res.status(200).json({ status: 'ERROR', message: err.message });
   }
 });
 
