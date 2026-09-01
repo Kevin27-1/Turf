@@ -34,6 +34,11 @@ export default defineConfig({
     }
   },
   server: {
+    headers: {
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'SAMEORIGIN',
+      'Content-Security-Policy': "default-src 'self' http: https: data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://localhost:3001 ws: wss: https:; img-src 'self' data: https: blob:;"
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3001',

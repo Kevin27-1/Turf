@@ -1,5 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { getFirebaseAuth } from './firebase.js';
+import NotFound from './NotFound.jsx';
 
 const BounceCards = lazy(() => import('./BounceCards.jsx'));
 const Dock = lazy(() => import('./Dock.jsx'));
@@ -1135,8 +1136,23 @@ export default function App() {
 
   const stats = getStats();
 
-  if (window.location.pathname === '/admin') {
+  const rawPath = window.location.pathname.toLowerCase();
+  const currentPath = rawPath === '/' ? '/' : rawPath.replace(/\/$/, '');
+  const validPaths = ['/', '/admin', '/book', '/passes', '/profile', '/home'];
+
+  if (currentPath === '/admin') {
     return <AdminApp />;
+  }
+
+  if (!validPaths.includes(currentPath)) {
+    return (
+      <NotFound 
+        onNavigate={(tab) => {
+          window.history.pushState({}, '', '/');
+          setCurrentTab(tab);
+        }} 
+      />
+    );
   }
 
   return (

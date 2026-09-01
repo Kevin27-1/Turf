@@ -156,7 +156,33 @@ if (getApps().length === 0) {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+app.disable('x-powered-by');
+
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'https://goldenarm.in'
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || origin.startsWith('http://localhost:')) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
+  credentials: true
+}));
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Content-Security-Policy', "default-src 'self' http: https: data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://localhost:3001 ws: wss: https:; img-src 'self' data: https: blob:;");
+  next();
+});
+
 app.use(express.json());
 
 // Log active database engine on startup
