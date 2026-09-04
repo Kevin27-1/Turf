@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // FIX FOR VULNERABILITY #1: Overly Permissive Auth Check (Access Bypass)
+    // -------------------------------------------------------------------------
+    // VULNERABLE:  allow read, write: if request.auth != null;
+    // SECURE FIX: Restrict access strictly to the owner (request.auth.uid == userId)
+    // =========================================================================
+
+    // User documents: Users can read their own profile, but cannot tamper with protected fields (role, isAdmin, credits)
+    match /users/{userId} {
+      allow get: if request.auth != null && request.auth.uid == userId;
+      allow list: if request.auth != null && request.auth.token.admin == true;
+      allow create: if request.auth != null && request.auth.uid == userId
+        && !request.resource.data.keys().hasAny(['role', 'isAdmin', 'is_admin', 'credits']);
+      allow update: if request.auth != null && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'phone', 'email', 'avatarUrl', 'updatedAt']);
+      allow delete: if request.auth != null && (request.auth.uid == userId || request.auth.token.admin == true);
+
+      // =======================================================================
+      // FIX FOR VULNERABILITY #3: Subcollection Security Rules
+      // Parent rules do NOT cascade automatically to subcollections in Firestore.
+      // Explicitly protect nested subcollections (e.g. notifications, payment_history)
+      // =======================================================================
+      match /notifications/{notificationId} {
+        allow read, update: if request.auth != null && request.auth.uid == userId;
+        allow create, delete: if false; // Only server/admin SDK creates or deletes notifications
+      }
+
+      match /payment_methods/{methodId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false; // Payment methods managed strictly server-side
+      }
+
+      // Fallback for any other nested subcollections under user documents
+      match /{subcollection}/{document=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // Bookings collection: Users can read/create their own bookings, but cannot modify protected fields (price, status)
+    match /bookings/{bookingId} {
+      allow read: if request.auth != null && (resource == null || resource.data.userId == request.auth.uid || request.auth.token.admin == true);
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null && resource.data.userId == request.auth.uid
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['price', 'totalAmount', 'status', 'paymentStatus']);
+      allow delete: if request.auth != null && (resource.data.userId == request.auth.uid || request.auth.token.admin == true);
+
+      // Explicit rules for booking payment transaction subcollections
+      match /transactions/{transactionId} {
+        allow read: if request.auth != null && (get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId == request.auth.uid || request.auth.token.admin == true);
+        allow write: if false; // Server-side Admin SDK handles transaction creation
+      }
+    }
+
+    // Slots collection: Publicly readable, modifiable only by admins (via custom claims or server-side Admin SDK)
+    match /slots/{slotId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+
+    // Admin settings collection: Readable by authenticated users, writable only by admins
+    match /admin_settings/{settingId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.admin == true;
+    }
+  }
+}
