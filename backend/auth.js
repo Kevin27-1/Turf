@@ -12,7 +12,7 @@ export const authenticateUser = async (req, res, next) => {
   const token = authHeader.split('Bearer ')[1];
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const userCheck = await query('SELECT id, name, phone FROM users WHERE id = $1', [decoded.id]);
+    const userCheck = await query('SELECT id, name, phone, email FROM users WHERE id = $1', [decoded.id]);
     if (!userCheck.rows || userCheck.rows.length === 0) {
       return res.status(401).json({ error: 'Unauthorized: Account no longer exists' });
     }

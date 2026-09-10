@@ -203,7 +203,8 @@ function initializeSqliteTables() {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      phone TEXT UNIQUE NOT NULL,
+      phone TEXT UNIQUE,
+      email TEXT UNIQUE,
       password_hash TEXT,
       created_at TEXT NOT NULL
     );
@@ -255,6 +256,7 @@ function initializeSqliteTables() {
       sqliteDb.run("ALTER TABLE admin_settings ADD COLUMN price_per_slot_day REAL DEFAULT 1200", () => {});
       sqliteDb.run("ALTER TABLE admin_settings ADD COLUMN price_per_slot_night REAL DEFAULT 1500", () => {});
       sqliteDb.run("ALTER TABLE users ADD COLUMN password_hash TEXT", () => {});
+      sqliteDb.run("ALTER TABLE users ADD COLUMN email TEXT", () => {});
       sqliteDb.run(`
         INSERT OR IGNORE INTO admin_settings (
           id, turf_name, operating_hours_start, operating_hours_end, 
@@ -286,7 +288,8 @@ async function initializePostgresTables() {
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      phone TEXT UNIQUE NOT NULL,
+      phone TEXT UNIQUE,
+      email TEXT UNIQUE,
       password_hash TEXT,
       created_at TEXT NOT NULL
     );
@@ -332,6 +335,7 @@ async function initializePostgresTables() {
   try {
     await pgPool.query(ddl);
     console.log('PostgreSQL tables initialized successfully.');
+    await pgPool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT");
     await pgPool.query(`
       INSERT INTO admin_settings (
         id, turf_name, operating_hours_start, operating_hours_end, 
@@ -364,15 +368,33 @@ export const query = async (text, params = []) => {
         const doc = await firestoreDb.collection('users').doc(params[0]).get();
         return { rows: doc.exists ? [{ id: doc.id, ...doc.data() }] : [] };
       }
+
+      // 1c. SELECT id, name, phone, email, created_at FROM users WHERE email = $1
+      if (trimmedText.includes('FROM users') && trimmedText.includes('email = $1')) {
+        const snap = await firestoreDb.collection('users').where('email', '==', params[0]).get();
+        const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        return { rows };
+      }
       
       // 2. INSERT INTO users (id, name, phone, password_hash, created_at)
+      // OR INSERT INTO users (id, name, phone, email, password_hash, created_at)
       if (trimmedText.startsWith('INSERT INTO users')) {
-        await firestoreDb.collection('users').doc(params[0]).set({
-          name: params[1],
-          phone: params[2],
-          password_hash: params[3],
-          created_at: params[4] || params[3]
-        });
+        if (params.length === 6) {
+          await firestoreDb.collection('users').doc(params[0]).set({
+            name: params[1],
+            phone: params[2] || null,
+            email: params[3] || null,
+            password_hash: params[4] || null,
+            created_at: params[5]
+          });
+        } else {
+          await firestoreDb.collection('users').doc(params[0]).set({
+            name: params[1],
+            phone: params[2],
+            password_hash: params[3],
+            created_at: params[4] || params[3]
+          });
+        }
         return { rows: [] };
       }
 
@@ -384,6 +406,15 @@ export const query = async (text, params = []) => {
           batch.update(doc.ref, { password_hash: params[0] });
         });
         await batch.commit();
+        return { rows: [] };
+      }
+
+      // 2c. UPDATE users SET name = $1, phone = $2 WHERE id = $3
+      if (trimmedText.startsWith('UPDATE users SET') && trimmedText.includes('WHERE id = $3')) {
+        await firestoreDb.collection('users').doc(params[2]).update({
+          name: params[0],
+          phone: params[1]
+        });
         return { rows: [] };
       }
       

@@ -27,7 +27,24 @@ export async function getGoogleProvider() {
   if (googleProviderInstance) return googleProviderInstance;
   const { GoogleAuthProvider } = await import("firebase/auth");
   googleProviderInstance = new GoogleAuthProvider();
+  googleProviderInstance.setCustomParameters({ prompt: 'select_account' });
   return googleProviderInstance;
 }
 
+export async function signInWithGoogle() {
+  const auth = await getFirebaseAuth();
+  if (!auth) {
+    throw new Error("Firebase Auth is not initialized. Please check your Firebase environment variables.");
+  }
+  const provider = await getGoogleProvider();
+  const { signInWithPopup } = await import("firebase/auth");
+  const result = await signInWithPopup(auth, provider);
+  const idToken = await result.user.getIdToken();
+  return {
+    user: result.user,
+    idToken
+  };
+}
+
 export { authInstance as auth };
+

@@ -334,7 +334,7 @@ app.post('/api/auth/login', async (req, res) => {
     const token = jwt.sign({ id: user.id, name: user.name, phone: user.phone }, JWT_SECRET, { expiresIn: '7d' });
     res.json({
       success: true,
-      user: { id: user.id, name: user.name, phone: user.phone, created_at: user.created_at },
+      user: { id: user.id, name: user.name, phone: user.phone, email: user.email || '', created_at: user.created_at },
       token
     });
   } catch (err) {
@@ -342,6 +342,158 @@ app.post('/api/auth/login', async (req, res) => {
     res.status(500).json({ error: 'Failed to process login request' });
   }
 });
+
+// POST /api/auth/google (Verify Firebase Google ID token. If existing user with phone, log in; if new or no phone, prompt phone verification)
+app.post('/api/auth/google', async (req, res) => {
+  const { idToken } = req.body;
+  if (!idToken) {
+    return res.status(400).json({ error: 'Firebase ID token is required' });
+  }
+
+  try {
+    const decodedToken = await getAuth().verifyIdToken(idToken);
+    const { email, name, picture } = decodedToken;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Google account must have an associated email address' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+
+    // Check if user already exists with this email
+    const userCheck = await query('SELECT id, name, phone, email, created_at FROM users WHERE email = $1', [cleanEmail]);
+    const user = userCheck.rows && userCheck.rows.length > 0 ? userCheck.rows[0] : null;
+
+    // If user exists and already has a verified phone number, log in directly
+    if (user && user.phone && user.phone.trim().length >= 10) {
+      const token = jwt.sign(
+        { id: user.id, name: user.name, phone: user.phone, email: user.email || '' },
+        JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      return res.json({
+        success: true,
+        needsPhone: false,
+        user: {
+          id: user.id,
+          name: user.name,
+          phone: user.phone,
+          email: user.email,
+          picture: picture || null,
+          created_at: user.created_at
+        },
+        token
+      });
+    }
+
+    // Otherwise, first-time user (or existing without phone) MUST verify phone number and OTP
+    return res.json({
+      success: true,
+      needsPhone: true,
+      googleUser: {
+        email: cleanEmail,
+        name: name || cleanEmail.split('@')[0],
+        picture: picture || null
+      }
+    });
+  } catch (err) {
+    console.error('Failed to verify Google token:', err);
+    res.status(401).json({ error: 'Failed to verify Google account: ' + err.message });
+  }
+});
+
+// POST /api/auth/google/complete (Complete registration for Google user by verifying phone OTP token)
+app.post('/api/auth/google/complete', async (req, res) => {
+  const { googleToken, phoneToken, name, phone } = req.body;
+
+  if (!googleToken || !phoneToken) {
+    return res.status(400).json({ error: 'Both Google token and Phone verification token are required' });
+  }
+  if (!phone || !phone.trim()) {
+    return res.status(400).json({ error: 'Phone number is required' });
+  }
+
+  const cleanPhone = phone.replace(/^\+91/, '').replace(/\D/g, '');
+  if (cleanPhone.length < 10) {
+    return res.status(400).json({ error: 'Please provide a valid 10-digit phone number' });
+  }
+
+  try {
+    // 1. Verify Google token
+    const decodedGoogle = await getAuth().verifyIdToken(googleToken);
+    const email = decodedGoogle.email ? decodedGoogle.email.toLowerCase().trim() : null;
+    const picture = decodedGoogle.picture || null;
+    if (!email) {
+      return res.status(400).json({ error: 'Google account missing verified email' });
+    }
+
+    // 2. Verify Phone OTP token
+    const decodedPhone = await getAuth().verifyIdToken(phoneToken);
+    const verifiedPhoneNumber = decodedPhone.phone_number;
+    if (!verifiedPhoneNumber) {
+      return res.status(400).json({ error: 'Invalid phone OTP verification token' });
+    }
+
+    const firebaseCleanPhone = verifiedPhoneNumber.replace(/^\+91/, '').replace(/\D/g, '');
+    if (firebaseCleanPhone !== cleanPhone) {
+      return res.status(400).json({ error: 'Verified phone number does not match submitted phone number' });
+    }
+
+    // 3. Ensure phone is not registered to ANOTHER user with a different email
+    const phoneCheck = await query('SELECT id, email FROM users WHERE phone = $1', [cleanPhone]);
+    if (phoneCheck.rows.length > 0) {
+      const existing = phoneCheck.rows[0];
+      if (existing.email && existing.email.toLowerCase() !== email) {
+        return res.status(400).json({ error: 'This phone number is already registered to another account. Please log in with your phone.' });
+      }
+    }
+
+    // 4. Check if user already exists by email
+    const userCheck = await query('SELECT id, name, phone, email, created_at FROM users WHERE email = $1', [email]);
+    let user;
+    const finalName = (name && name.trim()) ? name.trim() : (decodedGoogle.name || email.split('@')[0]);
+
+    if (userCheck.rows.length > 0) {
+      user = userCheck.rows[0];
+      await query('UPDATE users SET name = $1, phone = $2 WHERE id = $3', [finalName, cleanPhone, user.id]);
+      user.name = finalName;
+      user.phone = cleanPhone;
+    } else {
+      const userId = crypto.randomUUID();
+      const createdAt = new Date().toISOString();
+      await query(
+        'INSERT INTO users (id, name, phone, email, password_hash, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
+        [userId, finalName, cleanPhone, email, null, createdAt]
+      );
+      user = { id: userId, name: finalName, phone: cleanPhone, email, created_at: createdAt };
+    }
+
+    // 5. Issue application JWT token
+    const token = jwt.sign(
+      { id: user.id, name: user.name, phone: user.phone, email: user.email },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.status(201).json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        email: user.email,
+        picture,
+        created_at: user.created_at
+      },
+      token
+    });
+  } catch (err) {
+    console.error('Failed to complete Google registration with phone OTP:', err);
+    res.status(401).json({ error: 'Failed to complete registration: ' + err.message });
+  }
+});
+
 
 // POST /api/auth/forgot-password/verify-user (Check if phone number exists before sending Firebase OTP)
 app.post('/api/auth/forgot-password/verify-user', async (req, res) => {
