@@ -1012,11 +1012,14 @@ const authenticateAdmin = (req, res, next) => {
 // POST /api/admin/login
 app.post('/api/admin/login', (req, res) => {
   const { email, password } = req.body;
-  const adminEmail = process.env.ADMIN_EMAIL || 'admin@goldenarm.com';
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+  const adminEmail = process.env.ADMIN_EMAIL || 'ratheeshpacheni@gmail.com';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'sportycity123';
 
-  if (email === adminEmail && password === adminPassword) {
-    const token = jwt.sign({ email, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
+  const isEmailMatch = email && (email.toLowerCase().trim() === adminEmail.toLowerCase().trim());
+  const isPasswordMatch = password === adminPassword;
+
+  if (isEmailMatch && isPasswordMatch) {
+    const token = jwt.sign({ email: adminEmail, role: 'admin' }, JWT_SECRET, { expiresIn: '7d' });
     return res.json({ token });
   } else {
     return res.status(401).json({ error: 'Invalid admin credentials' });
