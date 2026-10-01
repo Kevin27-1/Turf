@@ -46,8 +46,8 @@ async function initializeFirestoreSettings() {
       console.log('Initializing default admin settings in Firestore...');
       await docRef.set({
         turf_name: 'GOLDEN ARM',
-        operating_hours_start: '06:00',
-        operating_hours_end: '23:00',
+        operating_hours_start: '00:00',
+        operating_hours_end: '24:00',
         slot_duration_minutes: 60,
         price_per_slot: 1200,
         price_per_slot_day: 1200,
@@ -56,6 +56,15 @@ async function initializeFirestoreSettings() {
         cancellation_window_hours: 4,
         sport_types_offered: 'Football, Cricket'
       });
+    } else {
+      const data = doc.data();
+      if (data && data.operating_hours_start === '06:00' && data.operating_hours_end === '23:00') {
+        console.log('Migrating Firestore settings to 24 hours (00:00 - 24:00)...');
+        await docRef.update({
+          operating_hours_start: '00:00',
+          operating_hours_end: '24:00'
+        });
+      }
     }
   } catch (err) {
     console.error('Failed to initialize Firestore admin settings:', err.message);
@@ -179,6 +188,13 @@ async function checkAndMigratePostgres() {
       console.log("Migration: Adding password_hash column to users table in Postgres...");
       await pgPool.query("ALTER TABLE users ADD COLUMN password_hash TEXT");
     }
+
+    // Migration to 24-hour operation in Postgres
+    await pgPool.query(`
+      UPDATE admin_settings 
+      SET operating_hours_start = '00:00', operating_hours_end = '24:00' 
+      WHERE operating_hours_start = '06:00' AND operating_hours_end = '23:00'
+    `);
   } catch (err) {
     console.warn("Postgres migration check failed, skipping drops:", err.message);
   }
@@ -262,10 +278,15 @@ function initializeSqliteTables() {
           id, turf_name, operating_hours_start, operating_hours_end, 
           slot_duration_minutes, price_per_slot, price_per_slot_day, price_per_slot_night,
           advance_payment_percentage, cancellation_window_hours, sport_types_offered
-        ) VALUES (1, 'GOLDEN ARM', '06:00', '23:00', 60, 1200, 1200, 1500, 40, 4, 'Football, Cricket')
+        ) VALUES (1, 'GOLDEN ARM', '00:00', '24:00', 60, 1200, 1200, 1500, 40, 4, 'Football, Cricket')
       `, (seedErr) => {
         if (seedErr) console.error('Failed to seed SQLite default settings:', seedErr.message);
       });
+      sqliteDb.run(`
+        UPDATE admin_settings 
+        SET operating_hours_start = '00:00', operating_hours_end = '24:00' 
+        WHERE operating_hours_start = '06:00' AND operating_hours_end = '23:00'
+      `);
     }
   });
 }
@@ -341,7 +362,7 @@ async function initializePostgresTables() {
         id, turf_name, operating_hours_start, operating_hours_end, 
         slot_duration_minutes, price_per_slot, price_per_slot_day, price_per_slot_night,
         advance_payment_percentage, cancellation_window_hours, sport_types_offered
-      ) VALUES (1, 'GOLDEN ARM', '06:00', '23:00', 60, 1200, 1200, 1500, 40, 4, 'Football, Cricket')
+      ) VALUES (1, 'GOLDEN ARM', '00:00', '24:00', 60, 1200, 1200, 1500, 40, 4, 'Football, Cricket')
       ON CONFLICT (id) DO NOTHING
     `);
   } catch (err) {

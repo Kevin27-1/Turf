@@ -9,8 +9,8 @@ export async function ensureSlotsForDate(dateStr) {
     const existingStartTimes = new Set((existingSlotsRes.rows || []).map(r => r.start_time));
 
     let settings = {
-      operating_hours_start: '06:00',
-      operating_hours_end: '23:00',
+      operating_hours_start: '00:00',
+      operating_hours_end: '24:00',
       slot_duration_minutes: 60,
       price_per_slot: 1200,
       price_per_slot_day: 1200,
@@ -22,8 +22,18 @@ export async function ensureSlotsForDate(dateStr) {
       settings = res.rows[0];
     }
 
-    const [startHour, startMin] = (settings.operating_hours_start || '06:00').split(':').map(Number);
-    const [endHour, endMin] = (settings.operating_hours_end || '23:00').split(':').map(Number);
+    let [startHour, startMin] = (settings.operating_hours_start || '00:00').split(':').map(Number);
+    let [endHour, endMin] = (settings.operating_hours_end || '24:00').split(':').map(Number);
+
+    // Support 24 hours: if start is 00:00 and end is 24:00, 00:00, or 23:59
+    const is24Hours = (startHour === 0 && startMin === 0) && (endHour === 24 || endHour === 0 || (endHour === 23 && endMin === 59));
+    if (is24Hours) {
+      startHour = 0;
+      startMin = 0;
+      endHour = 24;
+      endMin = 0;
+    }
+
     const startTotalMinutes = startHour * 60 + startMin;
     const endTotalMinutes = endHour * 60 + endMin;
     const duration = settings.slot_duration_minutes || 60;
@@ -32,13 +42,14 @@ export async function ensureSlotsForDate(dateStr) {
 
     let addedCount = 0;
     for (let min = startTotalMinutes; min + duration <= endTotalMinutes; min += duration) {
-      const sh = Math.floor(min / 60);
+      const sh = Math.floor(min / 60) % 24;
       const sm = min % 60;
       const eh = Math.floor((min + duration) / 60);
       const em = (min + duration) % 60;
 
       const start_time = `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
-      const end_time = `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`;
+      const end_h_display = eh === 24 ? '00' : String(eh % 24).padStart(2, '0');
+      const end_time = `${end_h_display}:${String(em).padStart(2, '0')}`;
 
       if (existingStartTimes.has(start_time)) {
         continue;

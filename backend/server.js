@@ -133,8 +133,8 @@ async function getAdminSettings() {
   }
   return {
     turf_name: 'GOLDEN ARM',
-    operating_hours_start: '06:00',
-    operating_hours_end: '23:00',
+    operating_hours_start: '00:00',
+    operating_hours_end: '24:00',
     slot_duration_minutes: 60,
     price_per_slot: 1200,
     price_per_slot_day: 1200,
@@ -1051,6 +1051,11 @@ app.put('/api/admin/settings', authenticateAdmin, async (req, res) => {
   const priceDayNum = parseFloat(price_per_slot_day);
   const priceNightNum = parseFloat(price_per_slot_night);
 
+  let normalizedEnd = operating_hours_end;
+  if (operating_hours_start === '00:00' && (operating_hours_end === '00:00' || operating_hours_end === '23:59')) {
+    normalizedEnd = '24:00';
+  }
+
   try {
     await query(
       `UPDATE admin_settings 
@@ -1062,7 +1067,7 @@ app.put('/api/admin/settings', authenticateAdmin, async (req, res) => {
       [
         turf_name,
         operating_hours_start,
-        operating_hours_end,
+        normalizedEnd,
         parseInt(slot_duration_minutes, 10),
         priceDayNum,
         priceNightNum,
@@ -1355,8 +1360,8 @@ app.get('/api/settings/public', async (req, res) => {
     const settings = await getAdminSettings();
     res.json({
       turf_name: settings.turf_name,
-      operating_hours_start: settings.operating_hours_start || '06:00',
-      operating_hours_end: settings.operating_hours_end || '23:00',
+      operating_hours_start: settings.operating_hours_start || '00:00',
+      operating_hours_end: settings.operating_hours_end || '24:00',
       slot_duration_minutes: settings.slot_duration_minutes || 60,
       price_per_slot_day: settings.price_per_slot_day ?? settings.price_per_slot ?? 1200,
       price_per_slot_night: settings.price_per_slot_night ?? settings.price_per_slot ?? 1500,

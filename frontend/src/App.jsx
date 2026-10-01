@@ -46,7 +46,7 @@ const formatTime12h = (timeStr) => {
   const parts = timeStr.split(':');
   const hour = parseInt(parts[0], 10);
   const min = parts[1] || '00';
-  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const ampm = (hour >= 12 && hour < 24) ? 'PM' : 'AM';
   const hour12 = hour % 12 || 12;
   const hourFormatted = String(hour12).padStart(2, '0');
   return `${hourFormatted}:${min} ${ampm}`;
@@ -89,9 +89,12 @@ export default function App() {
   const [publicSettings, setPublicSettings] = useState({
     turf_name: 'GOLDEN ARM',
     sport_types_offered: ['Football', 'Cricket'],
-    operating_hours_start: '06:00',
-    operating_hours_end: '23:00'
+    operating_hours_start: '00:00',
+    operating_hours_end: '24:00'
   });
+
+  const is24Hours = (publicSettings.operating_hours_start === '00:00') && 
+    (publicSettings.operating_hours_end === '24:00' || publicSettings.operating_hours_end === '00:00' || publicSettings.operating_hours_end === '23:59');
 
   const [reviewsData, setReviewsData] = useState(null);
 
@@ -1409,9 +1412,7 @@ export default function App() {
             <div className="relative z-10 text-center px-6 flex flex-col items-center md:hidden">
               <div className="border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-3 py-0.5 text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 mb-3">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse"></span>
-                {publicSettings.operating_hours_start && publicSettings.operating_hours_end 
-                  ? `${formatTime12h(publicSettings.operating_hours_start)} – ${formatTime12h(publicSettings.operating_hours_end)}`
-                  : 'Open Daily'}
+                {is24Hours ? 'Open 24 Hours' : `${formatTime12h(publicSettings.operating_hours_start)} – ${formatTime12h(publicSettings.operating_hours_end)}`}
               </div>
               {user && (
                 <div className="text-[10px] font-bold text-[#22c55e] uppercase tracking-widest mb-2">
@@ -1439,9 +1440,9 @@ export default function App() {
             <div className="relative z-10 hidden md:flex flex-col items-start px-16 max-w-3xl">
               <div className="border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-4 py-1 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 mb-5">
                 <span className="w-2 h-2 rounded-full bg-[#22c55e] animate-pulse"></span>
-                {publicSettings.operating_hours_start && publicSettings.operating_hours_end 
-                  ? `${formatTime12h(publicSettings.operating_hours_start)} – ${formatTime12h(publicSettings.operating_hours_end)} • Alakode, Kerala`
-                  : 'Open Daily • Alakode, Kerala'}
+                {is24Hours 
+                  ? 'Open 24 Hours • Alakode, Kerala'
+                  : `${formatTime12h(publicSettings.operating_hours_start)} – ${formatTime12h(publicSettings.operating_hours_end)} • Alakode, Kerala`}
               </div>
               {user && (
                 <div className="text-xs font-bold text-[#22c55e] uppercase tracking-widest mb-3">
@@ -1642,7 +1643,7 @@ export default function App() {
                     <div>
                       <span className="text-[8px] md:text-[10px] text-neutral-500 block uppercase font-bold">Hours</span>
                       <span className="text-xs md:text-xl font-black text-white mt-1 block">
-                        {formatTime12h(publicSettings.operating_hours_start || '06:00')} - {formatTime12h(publicSettings.operating_hours_end || '23:00')}
+                        {is24Hours ? '24 Hours' : `${formatTime12h(publicSettings.operating_hours_start)} - ${formatTime12h(publicSettings.operating_hours_end)}`}
                       </span>
                     </div>
                     <div>
@@ -3644,7 +3645,7 @@ export default function App() {
                     <p><strong className="text-neutral-400">Enterprise Name:</strong> GOLDEN ARM</p>
                     <p><strong className="text-neutral-400">Facility Type:</strong> Physical Sports Turf (Football &amp; Cricket)</p>
                     <p><strong className="text-neutral-400">Address:</strong> Sports City Complex, Alakode, Kannur, Kerala – 670571</p>
-                    <p><strong className="text-neutral-400">Operating Hours:</strong> {formatTime12h(publicSettings.operating_hours_start || '06:00')} – {formatTime12h(publicSettings.operating_hours_end || '23:00')} Daily</p>
+                    <p><strong className="text-neutral-400">Operating Hours:</strong> {is24Hours ? '24 Hours / 7 Days a week' : `${formatTime12h(publicSettings.operating_hours_start)} – ${formatTime12h(publicSettings.operating_hours_end)} Daily`}</p>
                     <p><strong className="text-neutral-400">Service:</strong> Sports Turf Slot Reservation</p>
                   </div>
                   <p className="text-[11px] text-neutral-400">
@@ -4787,6 +4788,27 @@ function AdminApp() {
                       />
                     </div>
 
+                    <div className="md:col-span-2 border border-neutral-900 bg-neutral-900/30 p-4 flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-black uppercase text-white block">24 Hours Operation</span>
+                        <span className="text-[10px] text-neutral-400 block mt-0.5">Enable round-the-clock booking for all 24 slots (12:00 AM – 11:59 PM)</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={hoursStart === '00:00' && (hoursEnd === '24:00' || hoursEnd === '00:00' || hoursEnd === '23:59')}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setHoursStart('00:00');
+                            setHoursEnd('24:00');
+                          } else {
+                            setHoursStart('06:00');
+                            setHoursEnd('23:00');
+                          }
+                        }}
+                        className="w-5 h-5 accent-[#22c55e] cursor-pointer"
+                      />
+                    </div>
+
                     <div>
                       <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Operating Hours Start</label>
                       <input
@@ -4803,8 +4825,8 @@ function AdminApp() {
                       <input
                         type="time"
                         required
-                        value={hoursEnd}
-                        onChange={(e) => setHoursEnd(e.target.value)}
+                        value={hoursEnd === '24:00' ? '23:59' : hoursEnd}
+                        onChange={(e) => setHoursEnd(e.target.value === '23:59' || e.target.value === '00:00' ? '24:00' : e.target.value)}
                         className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white focus:outline-none focus:border-[#22c55e]"
                       />
                     </div>
