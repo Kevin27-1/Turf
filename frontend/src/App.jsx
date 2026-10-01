@@ -1637,7 +1637,9 @@ export default function App() {
                   <div className="grid grid-cols-3 gap-2 text-center divide-x divide-neutral-900">
                     <div>
                       <span className="text-[8px] md:text-[10px] text-neutral-500 block uppercase font-bold">Rates</span>
-                      <span className="text-xs md:text-xl font-black text-white mt-1 block">₹900 - 1200</span>
+                      <span className="text-xs md:text-xl font-black text-white mt-1 block">
+                        ₹{publicSettings.price_per_slot_day || 1200} - {publicSettings.price_per_slot_night || 1500}
+                      </span>
                       <span className="text-[8px] text-neutral-500 block uppercase font-semibold mt-0.5">(60 Mins per slot)</span>
                     </div>
                     <div>
@@ -3663,7 +3665,7 @@ export default function App() {
                   Players must select an available 60-minute time slot and complete customer details. Players are expected to arrive 10 minutes before their scheduled slot start time. Footwear appropriate for synthetic turf (turf shoes or flat sports shoes; strictly no metal studs) must be worn.</p>
                   
                   <p><strong className="text-white">3. Pricing &amp; Venue Rules</strong><br/>
-                  Rates range between ₹900 – ₹1200 per 60-minute slot. Advance payments reserve the slot, and remaining balance payments are settled at the venue prior to play. Unsportsmanlike conduct, venue damage, or illegal activities are strictly prohibited.</p>
+                  Rates range between ₹{publicSettings.price_per_slot_day || 1200} – ₹{publicSettings.price_per_slot_night || 1500} per 60-minute slot. Advance payments reserve the slot, and remaining balance payments are settled at the venue prior to play. Unsportsmanlike conduct, venue damage, or illegal activities are strictly prohibited.</p>
                 </>
               )}
 
@@ -4846,7 +4848,7 @@ function AdminApp() {
                     </div>
 
                     <div>
-                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Price Per Slot (6 AM - 7 PM) (₹)</label>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Price Per Slot (6 AM - 6 PM) (₹)</label>
                       <input
                         type="number"
                         required
@@ -4858,7 +4860,7 @@ function AdminApp() {
                     </div>
 
                     <div>
-                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Price Per Slot (7 PM - 6 AM) (₹)</label>
+                      <label className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest block mb-2">Price Per Slot (6 PM - 6 AM) (₹)</label>
                       <input
                         type="number"
                         required

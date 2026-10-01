@@ -561,7 +561,7 @@ export const query = async (text, params = []) => {
           });
           return { rows: [], rowCount };
         } else if (trimmedText.includes('price =') || trimmedText.includes('price=')) {
-          const isDayUpdate = trimmedText.includes("start_time >= '06:00'") && trimmedText.includes("start_time < '19:00'");
+          const isDayUpdate = trimmedText.includes("start_time >= '06:00'") && (trimmedText.includes("start_time < '18:00'") || trimmedText.includes("start_time < '19:00'"));
           const snap = await firestoreDb.collection('slots').where('status', 'in', ['available', 'held']).get();
           const batch = firestoreDb.batch();
           let count = 0;
@@ -569,12 +569,12 @@ export const query = async (text, params = []) => {
             const data = doc.data();
             const st = data.start_time;
             if (isDayUpdate) {
-              if (st >= '06:00' && st < '19:00') {
+              if (st >= '06:00' && st < '18:00') {
                 batch.update(doc.ref, { price: params[0] });
                 count++;
               }
             } else {
-              if (st >= '19:00' || st < '06:00') {
+              if (st >= '18:00' || st < '06:00') {
                 batch.update(doc.ref, { price: params[0] });
                 count++;
               }

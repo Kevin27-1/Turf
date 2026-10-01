@@ -55,7 +55,7 @@ export async function ensureSlotsForDate(dateStr) {
         continue;
       }
 
-      const slotPrice = (start_time >= '06:00' && start_time < '19:00') ? priceDay : priceNight;
+      const slotPrice = (start_time >= '06:00' && start_time < '18:00') ? priceDay : priceNight;
       const slotId = crypto.randomUUID();
 
       await query(
