@@ -1073,8 +1073,7 @@ app.put('/api/admin/settings', authenticateAdmin, async (req, res) => {
     );
 
     // Delete unbooked available slots for today and future dates to apply new settings & hours
-    const d = new Date();
-    const todayStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     await query("DELETE FROM slots WHERE status = 'available' AND date >= $1", [todayStr]);
     await seedSlots();
 
@@ -1356,6 +1355,11 @@ app.get('/api/settings/public', async (req, res) => {
     const settings = await getAdminSettings();
     res.json({
       turf_name: settings.turf_name,
+      operating_hours_start: settings.operating_hours_start || '06:00',
+      operating_hours_end: settings.operating_hours_end || '23:00',
+      slot_duration_minutes: settings.slot_duration_minutes || 60,
+      price_per_slot_day: settings.price_per_slot_day ?? settings.price_per_slot ?? 1200,
+      price_per_slot_night: settings.price_per_slot_night ?? settings.price_per_slot ?? 1500,
       sport_types_offered: settings.sport_types_offered ? settings.sport_types_offered.split(',').map(s => s.trim()) : []
     });
   } catch (err) {

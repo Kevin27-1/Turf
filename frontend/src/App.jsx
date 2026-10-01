@@ -88,7 +88,9 @@ export default function App() {
   const [profileSub, setProfileSub] = useState(null); // null, 'edit', 'faq', 'settings', 'help', 'cancel-board', 'invite', 'rate'
   const [publicSettings, setPublicSettings] = useState({
     turf_name: 'GOLDEN ARM',
-    sport_types_offered: ['Football', 'Cricket']
+    sport_types_offered: ['Football', 'Cricket'],
+    operating_hours_start: '06:00',
+    operating_hours_end: '23:00'
   });
 
   const [reviewsData, setReviewsData] = useState(null);
@@ -1407,7 +1409,9 @@ export default function App() {
             <div className="relative z-10 text-center px-6 flex flex-col items-center md:hidden">
               <div className="border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-3 py-0.5 text-[9px] font-bold uppercase tracking-widest flex items-center gap-2 mb-3">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#22c55e] animate-pulse"></span>
-                Open 24 Hours
+                {publicSettings.operating_hours_start && publicSettings.operating_hours_end 
+                  ? `${formatTime12h(publicSettings.operating_hours_start)} – ${formatTime12h(publicSettings.operating_hours_end)}`
+                  : 'Open Daily'}
               </div>
               {user && (
                 <div className="text-[10px] font-bold text-[#22c55e] uppercase tracking-widest mb-2">
@@ -1435,7 +1439,9 @@ export default function App() {
             <div className="relative z-10 hidden md:flex flex-col items-start px-16 max-w-3xl">
               <div className="border border-[#22c55e]/60 bg-black/40 text-[#22c55e] px-4 py-1 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 mb-5">
                 <span className="w-2 h-2 rounded-full bg-[#22c55e] animate-pulse"></span>
-                Open 24 Hours • Alakode, Kerala
+                {publicSettings.operating_hours_start && publicSettings.operating_hours_end 
+                  ? `${formatTime12h(publicSettings.operating_hours_start)} – ${formatTime12h(publicSettings.operating_hours_end)} • Alakode, Kerala`
+                  : 'Open Daily • Alakode, Kerala'}
               </div>
               {user && (
                 <div className="text-xs font-bold text-[#22c55e] uppercase tracking-widest mb-3">
@@ -1635,7 +1641,9 @@ export default function App() {
                     </div>
                     <div>
                       <span className="text-[8px] md:text-[10px] text-neutral-500 block uppercase font-bold">Hours</span>
-                      <span className="text-xs md:text-xl font-black text-white mt-1 block">24 Hours</span>
+                      <span className="text-xs md:text-xl font-black text-white mt-1 block">
+                        {formatTime12h(publicSettings.operating_hours_start || '06:00')} - {formatTime12h(publicSettings.operating_hours_end || '23:00')}
+                      </span>
                     </div>
                     <div>
                       <span className="text-[8px] md:text-[10px] text-neutral-500 block uppercase font-bold">Sports</span>
@@ -1715,7 +1723,7 @@ export default function App() {
                   </span>
                 </div>
                 <p className="text-neutral-400 text-[10px] md:text-xs leading-relaxed max-w-md">
-                  Golden Arm Turf Pitch at Sports City Complex, Alakode. Premium 5-a-side artificial sports surface for football &amp; cricket. Open 24/7 with stadium floodlights and instant online booking.
+                  Golden Arm Turf Pitch at Sports City Complex, Alakode. Premium 5-a-side artificial sports surface for football &amp; cricket. Open daily with stadium floodlights and instant online booking.
                 </p>
                 <div className="text-[10px] text-neutral-500 font-medium">
                   <span className="block text-white font-bold">Location &amp; Address:</span>
@@ -1938,7 +1946,7 @@ export default function App() {
                     </>
                   ) : (
                     <>
-                      <Sparkles className="w-3.5 h-3.5" /> Auto-Seed 24 Hours
+                      <Sparkles className="w-3.5 h-3.5" /> Auto-Generate Slots
                     </>
                   )}
                 </button>
@@ -3624,7 +3632,7 @@ export default function App() {
                     Our facility features high-grade shock-absorbent artificial grass turf, high-mast floodlights for evening and night play, clean amenities, changing rooms, and on-site parking for players.
                   </p>
                   <p>
-                    We offer online slot booking for 5-a-side Football and Cricket matches 24 hours a day, 7 days a week.
+                    We offer online slot booking for 5-a-side Football and Cricket matches during operating hours daily.
                   </p>
                 </>
               )}
@@ -3636,7 +3644,7 @@ export default function App() {
                     <p><strong className="text-neutral-400">Enterprise Name:</strong> GOLDEN ARM</p>
                     <p><strong className="text-neutral-400">Facility Type:</strong> Physical Sports Turf (Football &amp; Cricket)</p>
                     <p><strong className="text-neutral-400">Address:</strong> Sports City Complex, Alakode, Kannur, Kerala – 670571</p>
-                    <p><strong className="text-neutral-400">Operating Hours:</strong> 24 Hours / 7 Days a week</p>
+                    <p><strong className="text-neutral-400">Operating Hours:</strong> {formatTime12h(publicSettings.operating_hours_start || '06:00')} – {formatTime12h(publicSettings.operating_hours_end || '23:00')} Daily</p>
                     <p><strong className="text-neutral-400">Service:</strong> Sports Turf Slot Reservation</p>
                   </div>
                   <p className="text-[11px] text-neutral-400">
