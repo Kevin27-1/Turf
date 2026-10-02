@@ -570,6 +570,12 @@ async function revertExpiredHolds() {
       "UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE status = 'held' AND held_until < $1",
       [now]
     );
+    // Clean up orphaned unpaid/pending booking holds older than 5 minutes
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    await query(
+      "DELETE FROM bookings WHERE (booking_status = 'pending' OR advance_paid_amount = 0 OR advance_paid_amount IS NULL) AND booking_status NOT IN ('confirmed', 'completed', 'cancelled') AND created_at < $1",
+      [fiveMinutesAgo]
+    );
   } catch (err) {
     console.error('[HOLD EXPIRE ERROR] Failed to automatically revert expired slot holds:', err);
   }
@@ -623,34 +629,38 @@ app.get('/api/bookings', authenticateUser, async (req, res) => {
        FROM bookings b
        JOIN slots s ON b.slot_id = s.id
        JOIN users u ON b.user_id = u.id
-       WHERE b.user_id = $1 AND b.booking_status != 'pending'
+       WHERE b.user_id = $1 
+         AND b.advance_paid_amount > 0 
+         AND b.booking_status IN ('confirmed', 'completed', 'cancelled')
        ORDER BY s.date DESC, s.start_time DESC`,
       [user_id]
     );
 
-    const bookings = bookingsRes.rows.map(row => ({
-      id: row.id,
-      slot_id: row.slot_id,
-      customer_name: row.customer_name,
-      customer_phone: row.customer_phone,
-      created_at: row.created_at,
-      user_id: row.user_id,
-      total_amount: row.total_amount,
-      advance_amount: row.advance_amount,
-      advance_paid_amount: row.advance_paid_amount,
-      balance_amount: row.balance_amount,
-      booking_status: row.booking_status,
-      cancellation_deadline: row.cancellation_deadline,
-      cancelled_at: row.cancelled_at,
-      refund_amount: row.refund_amount,
-      refund_status: row.refund_status,
-      slot: {
-        date: row.date,
-        start_time: row.start_time,
-        end_time: row.end_time,
-        price: row.price
-      }
-    }));
+    const bookings = bookingsRes.rows
+      .filter(row => Number(row.advance_paid_amount || 0) > 0 && row.booking_status !== 'pending')
+      .map(row => ({
+        id: row.id,
+        slot_id: row.slot_id,
+        customer_name: row.customer_name,
+        customer_phone: row.customer_phone,
+        created_at: row.created_at,
+        user_id: row.user_id,
+        total_amount: row.total_amount,
+        advance_amount: row.advance_amount,
+        advance_paid_amount: row.advance_paid_amount,
+        balance_amount: row.balance_amount,
+        booking_status: row.booking_status,
+        cancellation_deadline: row.cancellation_deadline,
+        cancelled_at: row.cancelled_at,
+        refund_amount: row.refund_amount,
+        refund_status: row.refund_status,
+        slot: {
+          date: row.date,
+          start_time: row.start_time,
+          end_time: row.end_time,
+          price: row.price
+        }
+      }));
 
     res.json(bookings);
   } catch (err) {
@@ -1106,7 +1116,7 @@ app.get('/api/admin/bookings', authenticateAdmin, async (req, res) => {
 
     if (date) {
       await ensureSlotsForDate(date);
-      // Today's Bookings
+      // Today's Bookings - ONLY passes where advance has actually been paid
       sql = `
         SELECT b.id, b.slot_id, b.created_at, b.user_id,
                u.name as customer_name, u.phone as customer_phone,
@@ -1116,7 +1126,9 @@ app.get('/api/admin/bookings', authenticateAdmin, async (req, res) => {
         FROM bookings b
         JOIN slots s ON b.slot_id = s.id
         JOIN users u ON b.user_id = u.id
-        WHERE s.date = $1
+        WHERE s.date = $1 
+          AND b.advance_paid_amount > 0 
+          AND b.booking_status IN ('confirmed', 'completed')
         ORDER BY s.start_time ASC
       `;
       params = [date];
@@ -1131,7 +1143,9 @@ app.get('/api/admin/bookings', authenticateAdmin, async (req, res) => {
         FROM bookings b
         JOIN slots s ON b.slot_id = s.id
         JOIN users u ON b.user_id = u.id
-        WHERE b.balance_payment_status = $1 AND b.booking_status = $2
+        WHERE b.balance_payment_status = $1 
+          AND b.booking_status = $2 
+          AND b.advance_paid_amount > 0
         ORDER BY s.date ASC, s.start_time ASC
       `;
       params = [balance_payment_status, booking_status];
@@ -1146,7 +1160,7 @@ app.get('/api/admin/bookings', authenticateAdmin, async (req, res) => {
         FROM bookings b
         JOIN slots s ON b.slot_id = s.id
         JOIN users u ON b.user_id = u.id
-        WHERE b.booking_status = $1
+        WHERE b.booking_status = $1 AND b.advance_paid_amount > 0
         ORDER BY b.cancelled_at DESC
       `;
       params = [booking_status];
@@ -1155,7 +1169,10 @@ app.get('/api/admin/bookings', authenticateAdmin, async (req, res) => {
     }
 
     const bookingsRes = await query(sql, params);
-    res.json(bookingsRes.rows);
+    const validRows = (bookingsRes.rows || []).filter(
+      b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending'
+    );
+    res.json(validRows);
   } catch (err) {
     console.error('Failed to get admin bookings:', err);
     res.status(500).json({ error: 'Failed to retrieve bookings list' });
@@ -1398,6 +1415,11 @@ app.get('/api/health', (req, res) => {
 app.listen(PORT, async () => {
   console.log(`Backend server running on port ${PORT}`);
   try {
+    await revertExpiredHolds();
+    // One-time startup purge for past unverified pending booking drafts
+    await query(
+      "DELETE FROM bookings WHERE (booking_status = 'pending' OR advance_paid_amount = 0 OR advance_paid_amount IS NULL) AND booking_status NOT IN ('confirmed', 'completed', 'cancelled')"
+    );
     await seedSlots();
   } catch (err) {
     console.error('Error during initial startup slot seeding:', err);

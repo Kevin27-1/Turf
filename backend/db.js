@@ -625,6 +625,24 @@ export const query = async (text, params = []) => {
           snap.docs.forEach(d => batch.delete(d.ref));
           if (snap.size > 0) await batch.commit();
           return { rows: [] };
+        } else if (trimmedText.includes('booking_status') || trimmedText.includes('advance_paid_amount')) {
+          const snap = await firestoreDb.collection('bookings').get();
+          const batch = firestoreDb.batch();
+          let count = 0;
+          const cutoffTime = (params && params.length > 0 && params[0]) ? params[0] : null;
+          snap.docs.forEach(d => {
+            const data = d.data();
+            const isUnpaid = !data.advance_paid_amount || Number(data.advance_paid_amount) <= 0;
+            const isPending = data.booking_status === 'pending';
+            const notConfirmed = !['confirmed', 'completed', 'cancelled'].includes(data.booking_status);
+            const isExpired = cutoffTime ? (data.created_at && data.created_at < cutoffTime) : true;
+            if ((isPending || isUnpaid) && notConfirmed && isExpired) {
+              batch.delete(d.ref);
+              count++;
+            }
+          });
+          if (count > 0) await batch.commit();
+          return { rows: [], rowCount: count };
         }
       }
 
@@ -675,6 +693,8 @@ export const query = async (text, params = []) => {
             price: data.slot?.price
           };
         });
+        // Strictly filter to passes where advance has actually been paid (> 0) and not pending
+        rows = rows.filter(b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending' && ['confirmed', 'completed', 'cancelled'].includes(b.booking_status));
         // Sort by date DESC, start_time DESC
         rows.sort((a, b) => {
           const dateComp = (b.date || '').localeCompare(a.date || '');
@@ -818,7 +838,13 @@ export const query = async (text, params = []) => {
         const rows = [];
         for (const doc of snap.docs) {
           const data = doc.data();
-          if (data.slot && data.slot.date === params[0]) {
+          if (
+            data.slot && 
+            data.slot.date === params[0] &&
+            Number(data.advance_paid_amount || 0) > 0 &&
+            data.booking_status !== 'pending' &&
+            ['confirmed', 'completed'].includes(data.booking_status)
+          ) {
             rows.push({
               id: doc.id,
               slot_id: data.slot_id,
@@ -850,7 +876,7 @@ export const query = async (text, params = []) => {
           .where('balance_payment_status', '==', params[0])
           .where('booking_status', '==', params[1])
           .get();
-        const rows = snap.docs.map(doc => {
+        let rows = snap.docs.map(doc => {
           const data = doc.data();
           return {
             id: doc.id,
@@ -872,6 +898,7 @@ export const query = async (text, params = []) => {
             price: data.slot?.price
           };
         });
+        rows = rows.filter(b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending');
         rows.sort((a, b) => {
           const dateComp = (a.date || '').localeCompare(b.date || '');
           if (dateComp !== 0) return dateComp;
@@ -885,7 +912,7 @@ export const query = async (text, params = []) => {
         const snap = await firestoreDb.collection('bookings')
           .where('booking_status', '==', params[0])
           .get();
-        const rows = snap.docs.map(doc => {
+        let rows = snap.docs.map(doc => {
           const data = doc.data();
           return {
             id: doc.id,
@@ -910,6 +937,7 @@ export const query = async (text, params = []) => {
             price: data.slot?.price
           };
         });
+        rows = rows.filter(b => Number(b.advance_paid_amount || 0) > 0);
         rows.sort((a, b) => (b.cancelled_at || '').localeCompare(a.cancelled_at || ''));
         return { rows };
       }
@@ -931,20 +959,22 @@ export const query = async (text, params = []) => {
       }
 
       // 11n. SELECT bookings for stats (excluding pending)
-      if (trimmedText.includes('FROM bookings b') && trimmedText.includes("booking_status != 'pending'") && trimmedText.includes("s.date")) {
-        const snap = await firestoreDb.collection('bookings').where('booking_status', '!=', 'pending').get();
-        const rows = snap.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            total_amount: data.total_amount,
-            advance_paid_amount: data.advance_paid_amount,
-            balance_amount: data.balance_amount,
-            booking_status: data.booking_status,
-            balance_payment_status: data.balance_payment_status || 'pending',
-            date: data.slot?.date
-          };
-        });
+      if (trimmedText.includes('FROM bookings b') && (trimmedText.includes("booking_status") || trimmedText.includes("s.date"))) {
+        const snap = await firestoreDb.collection('bookings').get();
+        const rows = snap.docs
+          .map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              total_amount: data.total_amount,
+              advance_paid_amount: data.advance_paid_amount,
+              balance_amount: data.balance_amount,
+              booking_status: data.booking_status,
+              balance_payment_status: data.balance_payment_status || 'pending',
+              date: data.slot?.date
+            };
+          })
+          .filter(b => Number(b.advance_paid_amount || 0) > 0 && ['confirmed', 'completed'].includes(b.booking_status));
         return { rows };
       }
 

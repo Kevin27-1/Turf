@@ -411,7 +411,11 @@ export default function App() {
       });
       if (res.ok) {
         const data = await res.json();
-        setMyBookings(data);
+        // Strictly filter to passes where advance has actually been paid (> 0) and not pending
+        const validBookings = (Array.isArray(data) ? data : []).filter(
+          b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending'
+        );
+        setMyBookings(validBookings);
       } else if (res.status === 401) {
         handleSignOut();
       }
@@ -892,7 +896,10 @@ export default function App() {
       });
       if (bookingsRes.ok) {
         const bookingsData = await bookingsRes.json();
-        setMyBookings(bookingsData);
+        const validBookings = (Array.isArray(bookingsData) ? bookingsData : []).filter(
+          b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending'
+        );
+        setMyBookings(validBookings);
       }
 
       setAuthPhone('');
@@ -958,7 +965,10 @@ export default function App() {
       });
       if (bookingsRes.ok) {
         const bookingsData = await bookingsRes.json();
-        setMyBookings(bookingsData);
+        const validBookings = (Array.isArray(bookingsData) ? bookingsData : []).filter(
+          b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending'
+        );
+        setMyBookings(validBookings);
       }
 
       setAuthPhone('');
@@ -1089,7 +1099,10 @@ export default function App() {
       });
       if (bookingsRes.ok) {
         const bookingsData = await bookingsRes.json();
-        setMyBookings(bookingsData);
+        const validBookings = (Array.isArray(bookingsData) ? bookingsData : []).filter(
+          b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending'
+        );
+        setMyBookings(validBookings);
       }
 
       setAuthName('');
@@ -1274,11 +1287,13 @@ export default function App() {
 
   // Dynamic Stats Calculations
   const getStats = () => {
-    const total = myBookings.length;
+    const validBookings = myBookings.filter(b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending');
+    const total = validBookings.length;
     const todayStr = toLocalDateString(new Date());
     const currentHour = new Date().getHours();
 
-    const upcoming = myBookings.filter(b => {
+    const upcoming = validBookings.filter(b => {
+      if (!b.slot || !b.slot.date) return false;
       if (b.slot.date > todayStr) return true;
       if (b.slot.date === todayStr) {
         const slotHour = parseInt(b.slot.start_time.split(':')[0], 10);
@@ -2147,23 +2162,28 @@ export default function App() {
                 Your Booked Passes
               </h3>
 
-              {myBookings.length === 0 ? (
-                <div className="border border-neutral-900 bg-neutral-950/20 p-8 text-center mt-4">
-                  <History className="w-8 h-8 text-neutral-700 mx-auto mb-2" />
-                  <p className="text-xs font-bold text-neutral-400 mb-1 uppercase tracking-wider">No Passes Found</p>
-                  <p className="text-[10px] text-neutral-500 max-w-[200px] mx-auto mb-6">
-                    You haven't booked any slots yet.
-                  </p>
-                  <button
-                    onClick={() => setCurrentTab('book')}
-                    className="w-full py-3 bg-[#22c55e] text-black font-extrabold text-xs uppercase tracking-wider rounded-none"
-                  >
-                    Go to Slots Board
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4 max-h-[60vh] overflow-y-auto no-scrollbar pr-1 pb-6">
-                  {myBookings.map((b) => {
+              {(() => {
+                const validPasses = myBookings.filter(b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending');
+                if (validPasses.length === 0) {
+                  return (
+                    <div className="border border-neutral-900 bg-neutral-950/20 p-8 text-center mt-4">
+                      <History className="w-8 h-8 text-neutral-700 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-neutral-400 mb-1 uppercase tracking-wider">No Passes Found</p>
+                      <p className="text-[10px] text-neutral-500 max-w-[200px] mx-auto mb-6">
+                        You haven't booked any slots yet.
+                      </p>
+                      <button
+                        onClick={() => setCurrentTab('book')}
+                        className="w-full py-3 bg-[#22c55e] text-black font-extrabold text-xs uppercase tracking-wider rounded-none"
+                      >
+                        Go to Slots Board
+                      </button>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="space-y-4 max-h-[60vh] overflow-y-auto no-scrollbar pr-1 pb-6">
+                    {validPasses.map((b) => {
                     const isCancelled = b.booking_status === 'cancelled';
                     
                     // Check if upcoming
@@ -2224,7 +2244,8 @@ export default function App() {
                     );
                   })}
                 </div>
-              )}
+                );
+              })()}
             </div>
           )}
         </main>
@@ -3919,7 +3940,10 @@ function AdminApp() {
     if (!checkAuthStatus(res)) return;
     if (res.ok) {
       const data = await res.json();
-      setBookings(data);
+      const validBookings = (Array.isArray(data) ? data : []).filter(
+        b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending'
+      );
+      setBookings(validBookings);
     }
   };
 
@@ -3935,7 +3959,10 @@ function AdminApp() {
     if (!checkAuthStatus(bRes)) return;
     if (bRes.ok) {
       const bData = await bRes.json();
-      setBookings(bData);
+      const validBookings = (Array.isArray(bData) ? bData : []).filter(
+        b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending'
+      );
+      setBookings(validBookings);
     }
   };
 
@@ -3955,7 +3982,10 @@ function AdminApp() {
     if (!checkAuthStatus(res)) return;
     if (res.ok) {
       const data = await res.json();
-      setBookings(data);
+      const validBookings = (Array.isArray(data) ? data : []).filter(
+        b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending'
+      );
+      setBookings(validBookings);
     }
   };
 
@@ -4344,26 +4374,31 @@ function AdminApp() {
                   />
                 </div>
 
-                {bookings.length === 0 ? (
-                  <div className="border border-neutral-900 p-10 bg-neutral-950/20 text-center uppercase tracking-wide">
-                    <p className="text-xs font-bold text-neutral-400">No Bookings Found</p>
-                    <p className="text-[9px] text-neutral-600 mt-1">There are no records for {todayDate}</p>
-                  </div>
-                ) : (
-                  <div className="border border-neutral-900 bg-neutral-950/20 overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b border-neutral-900 text-[9px] text-neutral-500 uppercase font-black tracking-widest bg-neutral-950/60">
-                          <th className="p-4">Time Block</th>
-                          <th className="p-4">Customer Details</th>
-                          <th className="p-4">Finance Details</th>
-                          <th className="p-4 text-center">Payment Status</th>
-                          <th className="p-4 text-center">Booking Status</th>
-                          <th className="p-4 text-right">Quick Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-neutral-900/60 font-medium">
-                        {bookings.map(b => (
+                {(() => {
+                  const validBookings = bookings.filter(b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending');
+                  if (validBookings.length === 0) {
+                    return (
+                      <div className="border border-neutral-900 p-10 bg-neutral-950/20 text-center uppercase tracking-wide">
+                        <p className="text-xs font-bold text-neutral-400">No Bookings Found</p>
+                        <p className="text-[9px] text-neutral-600 mt-1">There are no records for {todayDate}</p>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="border border-neutral-900 bg-neutral-950/20 overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-neutral-900 text-[9px] text-neutral-500 uppercase font-black tracking-widest bg-neutral-950/60">
+                            <th className="p-4">Time Block</th>
+                            <th className="p-4">Customer Details</th>
+                            <th className="p-4">Finance Details</th>
+                            <th className="p-4 text-center">Payment Status</th>
+                            <th className="p-4 text-center">Booking Status</th>
+                            <th className="p-4 text-right">Quick Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-900/60 font-medium">
+                          {validBookings.map(b => (
                           <tr key={b.id} className="hover:bg-neutral-950/40 transition">
                             <td className="p-4 font-black text-white">
                               {formatTime12h(b.start_time)} - {formatTime12h(b.end_time)}
@@ -4427,8 +4462,9 @@ function AdminApp() {
                       </tbody>
                     </table>
                   </div>
-                )}
-              </div>
+                );
+              })()}
+            </div>
             )}
 
             {activeTab === 'calendar' && (
