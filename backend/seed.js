@@ -5,8 +5,9 @@ export async function ensureSlotsForDate(dateStr) {
   if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return 0;
 
   try {
-    const existingSlotsRes = await query('SELECT start_time FROM slots WHERE date = $1', [dateStr]);
-    const existingStartTimes = new Set((existingSlotsRes.rows || []).map(r => r.start_time));
+    const existingSlotsRes = await query('SELECT id, start_time, price, status FROM slots WHERE date = $1', [dateStr]);
+    const existingSlots = existingSlotsRes.rows || [];
+    const existingStartTimes = new Set(existingSlots.map(r => r.start_time));
 
     let settings = {
       operating_hours_start: '00:00',
@@ -39,6 +40,18 @@ export async function ensureSlotsForDate(dateStr) {
     const duration = settings.slot_duration_minutes || 60;
     const priceDay = settings.price_per_slot_day ?? settings.price_per_slot ?? 1200;
     const priceNight = settings.price_per_slot_night ?? settings.price_per_slot ?? 1500;
+
+    // Automatically align prices for existing available slots:
+    // Morning (6:00 AM to 6:00 PM) -> priceDay
+    // Evening / Night (6:00 PM to 6:00 AM, including 18:00 / 6-7 PM) -> priceNight
+    for (const slot of existingSlots) {
+      if (slot.status === 'available') {
+        const expectedPrice = (slot.start_time >= '06:00' && slot.start_time < '18:00') ? priceDay : priceNight;
+        if (Number(slot.price) !== Number(expectedPrice)) {
+          await query('UPDATE slots SET price = $1 WHERE id = $2', [expectedPrice, slot.id]);
+        }
+      }
+    }
 
     let addedCount = 0;
     for (let min = startTotalMinutes; min + duration <= endTotalMinutes; min += duration) {

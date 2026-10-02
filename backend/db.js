@@ -560,9 +560,22 @@ export const query = async (text, params = []) => {
             }
           });
           return { rows: [], rowCount };
+        } else if ((trimmedText.includes('price =') || trimmedText.includes('price=')) && (trimmedText.includes('WHERE id =') || trimmedText.includes('WHERE id='))) {
+          // Direct single slot price update: UPDATE slots SET price = $1 WHERE id = $2
+          const slotId = params[1] || params[0];
+          const newPrice = Number(typeof params[0] === 'number' ? params[0] : params[1]);
+          await firestoreDb.collection('slots').doc(slotId).update({ price: newPrice });
+          return { rows: [] };
         } else if (trimmedText.includes('price =') || trimmedText.includes('price=')) {
           const isDayUpdate = trimmedText.includes("start_time >= '06:00'") && (trimmedText.includes("start_time < '18:00'") || trimmedText.includes("start_time < '19:00'"));
-          const snap = await firestoreDb.collection('slots').where('status', 'in', ['available', 'held']).get();
+          const hasDateFilter = trimmedText.includes('date = $2') || trimmedText.includes('date = $3');
+          const targetDate = hasDateFilter ? (params[1] || params[2]) : null;
+
+          let queryRef = firestoreDb.collection('slots').where('status', 'in', ['available', 'held']);
+          if (targetDate) {
+            queryRef = queryRef.where('date', '==', targetDate);
+          }
+          const snap = await queryRef.get();
           const batch = firestoreDb.batch();
           let count = 0;
           snap.docs.forEach(doc => {

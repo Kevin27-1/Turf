@@ -1080,6 +1080,10 @@ app.put('/api/admin/settings', authenticateAdmin, async (req, res) => {
       ]
     );
 
+    // Update prices for existing available slots
+    await query("UPDATE slots SET price = $1 WHERE status = 'available' AND start_time >= '06:00' AND start_time < '18:00'", [priceDayNum]);
+    await query("UPDATE slots SET price = $1 WHERE status = 'available' AND (start_time >= '18:00' OR start_time < '06:00')", [priceNightNum]);
+
     // Delete unbooked available slots for today and future dates to apply new settings & hours
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     await query("DELETE FROM slots WHERE status = 'available' AND date >= $1", [todayStr]);
