@@ -2195,9 +2195,10 @@ export default function App() {
                     const isPastDeadline = b.cancellation_deadline ? new Date(b.cancellation_deadline) <= new Date() : true;
                     
                     return (
-                      <div 
+                      <button 
+                        type="button"
                         key={b.id} 
-                        className={`border bg-neutral-950/40 p-4 hover:border-neutral-700 cursor-pointer transition relative ${
+                        className={`w-full text-left border bg-neutral-950/40 p-4 hover:border-neutral-700 cursor-pointer transition relative ${
                           isCancelled ? 'border-neutral-955 bg-neutral-955/20 opacity-55' : 'border-neutral-900'
                         }`}
                         onClick={() => setConfirmedBooking(b)}
@@ -2240,7 +2241,7 @@ export default function App() {
                         </div>
 
 
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -2567,6 +2568,18 @@ export default function App() {
                         </div>
                       </div>
 
+                      <div className="flex items-start gap-2 pt-1 pb-2">
+                        <input
+                          type="checkbox"
+                          id="marketingConsentSignup"
+                          required
+                          className="mt-0.5 w-3 h-3 accent-[#22c55e] shrink-0 cursor-pointer"
+                        />
+                        <label htmlFor="marketingConsentSignup" className="text-[9px] text-neutral-400 leading-tight cursor-pointer">
+                          I consent to receive SMS and Email notifications regarding my bookings, OTPs, and promotional offers.
+                        </label>
+                      </div>
+
                       <button 
                         type="submit" 
                         disabled={authFormLoading}
@@ -2696,6 +2709,18 @@ export default function App() {
                             className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pl-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
                           />
                         </div>
+                      </div>
+
+                      <div className="flex items-start gap-2 pt-1 pb-2">
+                        <input
+                          type="checkbox"
+                          id="marketingConsentGoogle"
+                          required
+                          className="mt-0.5 w-3 h-3 accent-[#22c55e] shrink-0 cursor-pointer"
+                        />
+                        <label htmlFor="marketingConsentGoogle" className="text-[9px] text-neutral-400 leading-tight cursor-pointer">
+                          I consent to receive SMS and Email notifications regarding my bookings, OTPs, and promotional offers.
+                        </label>
                       </div>
 
                       <button 
@@ -3620,7 +3645,7 @@ export default function App() {
       {/* --- POLICY / LEGAL MODAL OVERLAY --- */}
       {activePolicyModal && (
         <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="absolute inset-0" onClick={() => setActivePolicyModal(null)}></div>
+          <button type="button" aria-label="Close modal" tabIndex={-1} className="absolute inset-0 cursor-default" onClick={() => setActivePolicyModal(null)}></button>
           <div className="relative z-10 w-full max-w-2xl bg-neutral-950 border border-neutral-800 p-6 md:p-8 max-h-[85vh] overflow-y-auto no-scrollbar shadow-2xl">
             <div className="flex items-center justify-between border-b border-neutral-900 pb-4 mb-6">
               <div>
@@ -3732,7 +3757,7 @@ export default function App() {
       {/* BOOKING MODAL (BOTTOM DRAWER) */}
       {selectedSlot && (holdData ? holdTimeLeft > 0 : true) && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-xs z-50 flex items-end justify-center p-4">
-          <div className="absolute inset-0" onClick={handleCloseBooking}></div>
+          <button type="button" aria-label="Close modal" tabIndex={-1} className="absolute inset-0 cursor-default" onClick={handleCloseBooking}></button>
 
           <div className="w-full max-w-sm bg-neutral-950 border border-neutral-800 rounded-none relative z-10 p-5 transform translate-y-0 transition duration-300 animate-in slide-in-from-bottom duration-300">
             

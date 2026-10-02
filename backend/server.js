@@ -10,6 +10,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { query, getDbEngine, getDbDiagnostics } from './db.js';
 import { seedSlots, ensureSlotsForDate } from './seed.js';
 import { authenticateUser } from './auth.js';
+import rateLimit from 'express-rate-limit';
 
 dotenv.config();
 
@@ -157,6 +158,18 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.disable('x-powered-by');
+
+// Global API rate limiter (sane burst)
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 500, // Limit each IP to 500 requests per 15 minutes
+  standardHeaders: true, 
+  legacyHeaders: false, 
+  message: { error: 'Too many requests from this IP, please try again after 15 minutes' }
+});
+
+// Apply rate limiter to all API routes
+app.use('/api/', apiLimiter);
 
 const allowedOrigins = [
   'http://localhost:5173',
@@ -632,7 +645,8 @@ app.get('/api/bookings', authenticateUser, async (req, res) => {
        WHERE b.user_id = $1 
          AND b.advance_paid_amount > 0 
          AND b.booking_status IN ('confirmed', 'completed', 'cancelled')
-       ORDER BY s.date DESC, s.start_time DESC`,
+       ORDER BY s.date DESC, s.start_time DESC
+       LIMIT 50`,
       [user_id]
     );
 
@@ -1023,7 +1037,7 @@ const authenticateAdmin = (req, res, next) => {
 app.post('/api/admin/login', (req, res) => {
   const { email, password } = req.body;
   const adminEmail = process.env.ADMIN_EMAIL || 'ratheeshpacheni@gmail.com';
-  const adminPassword = process.env.ADMIN_PASSWORD || 'sportycity123';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'sportscity123';
 
   const isEmailMatch = email && (email.toLowerCase().trim() === adminEmail.toLowerCase().trim());
   const isPasswordMatch = password === adminPassword;
@@ -1269,13 +1283,19 @@ app.post('/api/admin/slots/unblock', authenticateAdmin, async (req, res) => {
 // GET /api/admin/stats
 app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
   try {
+    // Calculate 90 days ago to bound the query
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    const ninetyDaysAgoStr = ninetyDaysAgo.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
     // Fetch all bookings that are confirmed or completed (non-pending)
     const bookingsRes = await query(`
       SELECT b.total_amount, b.advance_paid_amount, b.balance_amount, b.booking_status, b.balance_payment_status, b.device_type, s.date
       FROM bookings b
       JOIN slots s ON b.slot_id = s.id
       WHERE b.booking_status != 'pending'
-    `);
+        AND s.date >= $1
+    `, [ninetyDaysAgoStr]);
     const bookings = bookingsRes.rows;
 
     const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });

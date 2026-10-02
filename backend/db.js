@@ -978,6 +978,25 @@ export const query = async (text, params = []) => {
         return { rows };
       }
 
+      // 11x. Admin stats query
+      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('WHERE b.booking_status != \'pending\'') && trimmedText.includes('AND s.date >=')) {
+        const snap = await firestoreDb.collection('bookings').where('booking_status', 'in', ['confirmed', 'completed', 'cancelled']).get();
+        return {
+          rows: snap.docs
+            .map(d => d.data())
+            .filter(d => d.slot?.date >= params[0])
+            .map(data => ({
+              total_amount: data.total_amount,
+              advance_paid_amount: data.advance_paid_amount,
+              balance_amount: data.balance_amount,
+              booking_status: data.booking_status,
+              balance_payment_status: data.balance_payment_status,
+              device_type: data.device_type,
+              date: data.slot?.date
+            }))
+        };
+      }
+
       // 12. Transaction markers
       if (trimmedText === 'BEGIN' || trimmedText === 'COMMIT' || trimmedText === 'ROLLBACK') {
         return { rows: [] };
