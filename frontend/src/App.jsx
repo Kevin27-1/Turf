@@ -3725,6 +3725,9 @@ export default function App() {
                   
                   <p><strong className="text-white">3. Data Security</strong><br/>
                   We implement secure database standards to protect customer contact information against unauthorized access.</p>
+                  
+                  <p><strong className="text-white">4. SMS & Email Communications</strong><br/>
+                  By creating an account, you consent to receive transactional SMS (one-time passwords, booking status alerts, payment receipts) and occasional promotional announcements. We do not engage in spam. You may opt out of promotional messages at any time by contacting our support desk or writing to ratheeshpacheni@gmail.com.</p>
                 </>
               )}
 
