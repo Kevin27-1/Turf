@@ -4445,7 +4445,7 @@ function AdminApp() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="ratheeshpacheni@gmail.com"
+                placeholder="admin@domain.com"
                 className="w-full bg-[#070707] border border-neutral-900 rounded-none p-3.5 text-xs text-white placeholder-neutral-700 focus:outline-none focus:border-[#22c55e]"
               />
             </div>
