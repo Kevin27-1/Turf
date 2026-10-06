@@ -251,6 +251,13 @@ export default function App() {
     }
   }, []);
 
+  // Show payment & receipt notice popup when opening booking selection tab
+  useEffect(() => {
+    if (currentTab === 'book') {
+      setShowPaymentNoticeModal(true);
+    }
+  }, [currentTab]);
+
   // Handle return from payment gateway (Cashfree redirect with ?order_id=...)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -3807,9 +3814,21 @@ export default function App() {
       )}
 
       {/* RETURN TO WEBSITE & RECEIPT NOTICE POPUP */}
-      {showPaymentNoticeModal && selectedSlot && (
+      {showPaymentNoticeModal && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[70] flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-[#0a0a0a] border-2 border-[#22c55e] p-6 text-center relative shadow-[0_0_40px_rgba(34,197,94,0.25)] animate-in fade-in zoom-in-95 duration-200">
+            <button
+              type="button"
+              onClick={() => {
+                setShowPaymentNoticeModal(false);
+                if (selectedSlot) handleCloseBooking();
+              }}
+              className="absolute top-4 right-4 text-neutral-400 hover:text-white p-1 cursor-pointer"
+              aria-label="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
             <div className="w-14 h-14 rounded-full bg-[#22c55e]/10 border border-[#22c55e]/30 flex items-center justify-center mx-auto mb-4 text-[#22c55e]">
               <AlertTriangle className="w-7 h-7" />
             </div>
@@ -3847,14 +3866,21 @@ export default function App() {
                 onClick={() => setShowPaymentNoticeModal(false)}
                 className="w-full py-3.5 bg-[#22c55e] hover:bg-[#1db252] text-black font-black uppercase text-xs tracking-wider transition shadow-[2px_2px_0px_#000] cursor-pointer"
               >
-                I Understand, Proceed to Book
+                {selectedSlot ? 'I Understand, Proceed to Book' : 'I Understand, Proceed to Select Slots'}
               </button>
               <button
                 type="button"
-                onClick={handleCloseBooking}
+                onClick={() => {
+                  setShowPaymentNoticeModal(false);
+                  if (selectedSlot) {
+                    handleCloseBooking();
+                  } else {
+                    setCurrentTab('home');
+                  }
+                }}
                 className="w-full py-2 text-neutral-400 hover:text-white text-xs font-bold uppercase tracking-wider transition cursor-pointer"
               >
-                Cancel
+                {selectedSlot ? 'Cancel' : 'Back to Home'}
               </button>
             </div>
           </div>
