@@ -163,7 +163,8 @@ export default function App() {
 
   // Local Storage Bookings & Profile list
   const [myBookings, setMyBookings] = useState([]);
-  const [profile, setProfile] = useState({ name: 'Guest Player', email: '', phone: '+91 98765 43210' });
+  const [profile, setProfile] = useState({ name: '', email: '', phone: '' });
+  const [showPaymentNoticeModal, setShowPaymentNoticeModal] = useState(false);
 
   // Temp profile edit state
   const [editName, setEditName] = useState('');
@@ -257,31 +258,39 @@ export default function App() {
     if (urlOrderId) {
       const verifyFromRedirect = async () => {
         const token = localStorage.getItem('jwt_token');
-        if (!token) return;
-        try {
-          setBookingLoading(true);
-          const verifyRes = await fetch('/api/bookings/verify', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({ order_id: urlOrderId })
-          });
-          const verifyData = await verifyRes.json();
-          if (verifyData && verifyData.success && verifyData.booking) {
-            setConfirmedBooking(verifyData.booking);
-            setCurrentTab('book');
-            await fetchBookings();
-            if (selectedDate) fetchSlots(selectedDate, true);
+        setBookingLoading(true);
+        // Resilient retry polling: 4 attempts with 2-second delay to handle bank confirmation delays
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          try {
+            const verifyRes = await fetch('/api/bookings/verify', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+              },
+              body: JSON.stringify({ order_id: urlOrderId })
+            });
+            const verifyData = await verifyRes.json();
+            if (verifyRes.ok && verifyData && verifyData.success && verifyData.booking) {
+              setConfirmedBooking(verifyData.booking);
+              setCurrentTab('book');
+              await fetchBookings();
+              if (selectedDate) fetchSlots(selectedDate, true);
+              break;
+            }
+            if (verifyData?.error && !verifyData.error.includes('PENDING') && !verifyData.error.includes('not completed')) {
+              break;
+            }
+          } catch (e) {
+            console.error(`Auto-verify redirect attempt ${attempt} failed:`, e);
           }
-        } catch (e) {
-          console.error('Failed to auto-verify order from redirect:', e);
-        } finally {
-          setBookingLoading(false);
-          // Clean up URL query parameters cleanly
-          window.history.replaceState({}, document.title, window.location.pathname);
+          if (attempt < 4) {
+            await new Promise(r => setTimeout(r, 2000));
+          }
         }
+        setBookingLoading(false);
+        // Clean up URL query parameters cleanly
+        window.history.replaceState({}, document.title, window.location.pathname);
       };
       verifyFromRedirect();
     }
@@ -524,6 +533,7 @@ export default function App() {
       return;
     }
     setSelectedSlot(slot);
+    setShowPaymentNoticeModal(true);
     setBookingLoading(true);
     setBookingError('');
     setHoldData(null);
@@ -545,7 +555,7 @@ export default function App() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ slot_id: slot.id, device_type: deviceType })
+        body: JSON.stringify({ slot_id: slot.id, device_type: deviceType, origin: window.location.origin })
       });
 
       const data = await res.json();
@@ -573,6 +583,7 @@ export default function App() {
   };
 
   const handleCloseBooking = () => {
+    setShowPaymentNoticeModal(false);
     setSelectedSlot(null);
     setHoldData(null);
     setBookingError('');
@@ -618,48 +629,73 @@ export default function App() {
 
       if (result && result.error) {
         console.warn('[CASHFREE CHECKOUT DISMISS/ERROR]:', result.error);
-        setBookingLoading(false);
-        if (result.error.message && result.error.code !== 'PAYMENT_CANCELLED') {
-          setBookingError(result.error.message);
-        }
-        return;
+        // Note: Do not immediately fail. When users pay via UPI (GPay/PhonePe), returning to
+        // the browser often triggers a modal dismiss event even though payment succeeded.
+        // We always query the backend to double-check Cashfree order status!
       }
 
-      // 4. Verify payment with backend
+      // 4. Verify payment with backend (polling up to 3 times to account for bank confirmation latency)
       setBookingLoading(true);
       setBookingError('');
 
-      const verifyRes = await fetch('/api/bookings/verify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          order_id: holdData.orderId
-        })
-      });
+      let verifiedSuccessfully = false;
+      let lastErrMsg = '';
 
-      const verifyData = await verifyRes.json();
-      if (!verifyRes.ok) {
-        throw new Error(verifyData.error || 'Payment verification failed.');
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const verifyRes = await fetch('/api/bookings/verify', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              order_id: holdData.orderId
+            })
+          });
+
+          const verifyData = await verifyRes.json();
+          if (verifyRes.ok && verifyData && verifyData.success && verifyData.booking) {
+            verifiedSuccessfully = true;
+            // 5. Update state on successful confirmation and redirect to Booking section
+            const updatedBookings = [verifyData.booking, ...myBookings];
+            setMyBookings(updatedBookings);
+            setConfirmedBooking(verifyData.booking);
+            setCurrentTab('book'); // Redirect directly to the booking section!
+            setProfileSub(null);
+            
+            // Clean up modal states but keep confirmedBooking
+            setSelectedSlot(null);
+            setHoldData(null);
+
+            // Refresh slots and bookings in background
+            await fetchBookings();
+            if (selectedDate) {
+              fetchSlots(selectedDate, true);
+            }
+            break;
+          } else {
+            lastErrMsg = verifyData?.error || 'Payment verification pending.';
+            if (verifyData?.error && !verifyData.error.includes('PENDING') && !verifyData.error.includes('not completed')) {
+              break;
+            }
+          }
+        } catch (e) {
+          lastErrMsg = e.message;
+        }
+
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
       }
 
-      // 5. Update state on successful confirmation and redirect to Booking section
-      const updatedBookings = [verifyData.booking, ...myBookings];
-      setMyBookings(updatedBookings);
-      setConfirmedBooking(verifyData.booking);
-      setCurrentTab('book'); // Redirect directly to the booking section!
-      setProfileSub(null);
-      
-      // Clean up modal states but keep confirmedBooking
-      setSelectedSlot(null);
-      setHoldData(null);
-
-      // Refresh slots and bookings in background
-      await fetchBookings();
-      if (selectedDate) {
-        fetchSlots(selectedDate, true);
+      if (!verifiedSuccessfully) {
+        if (result && result.error && (result.error.code === 'PAYMENT_CANCELLED' || result.error.message?.includes('closed'))) {
+          setBookingError('');
+        } else {
+          setBookingError(lastErrMsg || 'Payment could not be verified yet. If money was deducted, your booking will be confirmed automatically via webhook.');
+        }
+        setBookingLoading(false);
       }
 
     } catch (err) {
@@ -720,6 +756,32 @@ export default function App() {
 
 
 
+  const formatFirebaseAuthError = (err) => {
+    if (!err) return 'An unexpected error occurred. Please try again.';
+    if (err.code === 'auth/quota-exceeded') {
+      return 'SMS verification service is temporarily busy. Please try again in a few moments, or sign in using Google.';
+    }
+    if (err.code === 'auth/too-many-requests') {
+      return 'Too many OTP requests from this device or number. Please wait a few minutes before trying again.';
+    }
+    if (err.code === 'auth/operation-not-allowed') {
+      return 'Phone auth is disabled. Enable it in your Firebase console under Authentication > Sign-in method.';
+    }
+    if (err.code === 'auth/invalid-phone-number') {
+      return 'Invalid phone number format. Please enter a valid 10-digit number.';
+    }
+    if (err.code === 'auth/captcha-check-failed') {
+      return 'reCAPTCHA verification failed. Please refresh the page and try again.';
+    }
+    if (err.code === 'auth/invalid-app-credential' || err.code === 'auth/app-not-authorized') {
+      return 'Domain not authorized for Firebase Auth. Add your domain to Authorized Domains in Firebase Console.';
+    }
+    if (err.code === 'auth/billing-not-enabled') {
+      return 'SMS verification requires billing enabled on your Firebase project.';
+    }
+    return err.message || 'Failed to send OTP. Please try again.';
+  };
+
   const handleSendSignUpOtp = async (e) => {
     e.preventDefault();
     setAuthFormError('');
@@ -775,13 +837,13 @@ export default function App() {
       setAuthFormSuccess(`Verification OTP sent to +91 ${cleanPhone}`);
     } catch (err) {
       console.error('Send signup OTP failed:', err);
-      let errMsg = err.message;
-      if (err.code === 'auth/operation-not-allowed') {
-        errMsg = 'Phone auth is disabled. Enable it in your Firebase console under Authentication > Sign-in method.';
-      } else if (err.code === 'auth/invalid-phone-number') {
-        errMsg = 'Invalid phone number format. Enter a 10-digit number.';
+      if (window.recaptchaVerifier) {
+        try {
+          window.recaptchaVerifier.clear();
+        } catch (e) {}
+        window.recaptchaVerifier = null;
       }
-      setAuthFormError(errMsg);
+      setAuthFormError(formatFirebaseAuthError(err));
     } finally {
       setAuthFormLoading(false);
     }
@@ -1037,13 +1099,13 @@ export default function App() {
       setAuthFormSuccess(`Verification OTP sent to +91 ${cleanPhone}`);
     } catch (err) {
       console.error('Send Google phone OTP failed:', err);
-      let errMsg = err.message || 'Failed to send OTP';
-      if (err.code === 'auth/operation-not-allowed') {
-        errMsg = 'Phone auth is disabled. Enable it in your Firebase console under Authentication > Sign-in method.';
-      } else if (err.code === 'auth/invalid-phone-number') {
-        errMsg = 'Invalid phone number format. Enter a 10-digit number.';
+      if (window.recaptchaVerifier) {
+        try {
+          window.recaptchaVerifier.clear();
+        } catch (e) {}
+        window.recaptchaVerifier = null;
       }
-      setAuthFormError(errMsg);
+      setAuthFormError(formatFirebaseAuthError(err));
     } finally {
       setAuthFormLoading(false);
     }
@@ -1167,13 +1229,13 @@ export default function App() {
       setAuthFormSuccess(`OTP sent to +91 ${cleanPhone}`);
     } catch (err) {
       console.error('Send reset OTP failed:', err);
-      let errMsg = err.message;
-      if (err.code === 'auth/operation-not-allowed') {
-        errMsg = 'Phone auth is disabled. Enable it in your Firebase console under Authentication > Sign-in method.';
-      } else if (err.code === 'auth/invalid-phone-number') {
-        errMsg = 'Invalid phone number format. Enter a 10-digit number.';
+      if (window.recaptchaVerifier) {
+        try {
+          window.recaptchaVerifier.clear();
+        } catch (e) {}
+        window.recaptchaVerifier = null;
       }
-      setAuthFormError(errMsg);
+      setAuthFormError(formatFirebaseAuthError(err));
     } finally {
       setAuthFormLoading(false);
     }
@@ -2260,8 +2322,6 @@ export default function App() {
             </div>
           ) : !user ? (
             <div className="border border-neutral-900 bg-neutral-950/50 p-6 space-y-6 my-4 animate-in fade-in duration-200">
-              <div id="recaptcha-container"></div>
-              
               {/* Auth Mode Toggle Tabs (Log In vs Sign Up) */}
               {authMode !== 'forgot' && authMode !== 'google_phone' && (
                 <div className="flex border-b border-neutral-900 pb-4 justify-center gap-6">
@@ -2391,7 +2451,7 @@ export default function App() {
                         required
                         value={authPhone}
                         onChange={(e) => setAuthPhone(e.target.value.replace(/\D/g, ''))}
-                        placeholder="9876543210" 
+                        placeholder="Enter 10-digit number" 
                         maxLength={10}
                         className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pl-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
                       />
@@ -2517,7 +2577,7 @@ export default function App() {
                             required
                             value={authPhone}
                             onChange={(e) => setAuthPhone(e.target.value.replace(/\D/g, ''))}
-                            placeholder="9876543210" 
+                            placeholder="Enter 10-digit number" 
                             maxLength={10}
                             className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pl-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
                           />
@@ -2595,10 +2655,6 @@ export default function App() {
                         )}
                       </button>
 
-                      <p className="text-center text-[9px] text-neutral-500 uppercase font-bold tracking-wider mt-2">
-                        For test numbers, use fixed OTP 123456
-                      </p>
-
                       <div className="relative my-3 flex items-center justify-center">
                         <div className="absolute inset-0 flex items-center">
                           <div className="w-full border-t border-neutral-850"></div>
@@ -2651,7 +2707,7 @@ export default function App() {
                           required
                           value={authOtpCode}
                           onChange={(e) => setAuthOtpCode(e.target.value.replace(/\D/g, ''))}
-                          placeholder="123456" 
+                          placeholder="••••••" 
                           maxLength={6}
                           className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 text-xs tracking-[0.75em] text-center focus:border-[#22c55e] focus:outline-none transition"
                         />
@@ -2704,7 +2760,7 @@ export default function App() {
                             required
                             value={authPhone}
                             onChange={(e) => setAuthPhone(e.target.value.replace(/\D/g, ''))}
-                            placeholder="9876543210" 
+                            placeholder="Enter 10-digit number" 
                             maxLength={10}
                             className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pl-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
                           />
@@ -2737,9 +2793,6 @@ export default function App() {
                           'Send Verification OTP'
                         )}
                       </button>
-                      <p className="text-center text-[9px] text-neutral-500 uppercase font-bold tracking-wider mt-2">
-                        For test numbers, use fixed OTP 123456
-                      </p>
                     </form>
                   )}
 
@@ -2752,7 +2805,7 @@ export default function App() {
                           required
                           value={authOtpCode}
                           onChange={(e) => setAuthOtpCode(e.target.value.replace(/\D/g, ''))}
-                          placeholder="123456" 
+                          placeholder="••••••" 
                           maxLength={6}
                           className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 text-xs tracking-[0.75em] text-center focus:border-[#22c55e] focus:outline-none transition"
                         />
@@ -2909,7 +2962,7 @@ export default function App() {
                             required
                             value={authPhone}
                             onChange={(e) => setAuthPhone(e.target.value.replace(/\D/g, ''))}
-                            placeholder="9876543210" 
+                            placeholder="Enter 10-digit number" 
                             maxLength={10}
                             className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 pl-10 text-xs focus:border-[#22c55e] focus:outline-none transition"
                           />
@@ -2930,10 +2983,6 @@ export default function App() {
                           'Verify Mobile Number (Send OTP)'
                         )}
                       </button>
-
-                      <p className="text-center text-[9px] text-neutral-500 uppercase font-bold tracking-wider mt-2">
-                        For test numbers, use fixed OTP 123456
-                      </p>
 
                       <div className="text-center pt-2 border-t border-neutral-900">
                         <button
@@ -2961,7 +3010,7 @@ export default function App() {
                           required
                           value={authOtpCode}
                           onChange={(e) => setAuthOtpCode(e.target.value.replace(/\D/g, ''))}
-                          placeholder="123456" 
+                          placeholder="••••••" 
                           maxLength={6}
                           className="w-full bg-neutral-900 border border-neutral-800 text-white font-bold p-3 text-xs tracking-[0.75em] text-center focus:border-[#22c55e] focus:outline-none transition"
                         />
@@ -3757,6 +3806,61 @@ export default function App() {
         </div>
       )}
 
+      {/* RETURN TO WEBSITE & RECEIPT NOTICE POPUP */}
+      {showPaymentNoticeModal && selectedSlot && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[70] flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-[#0a0a0a] border-2 border-[#22c55e] p-6 text-center relative shadow-[0_0_40px_rgba(34,197,94,0.25)] animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 rounded-full bg-[#22c55e]/10 border border-[#22c55e]/30 flex items-center justify-center mx-auto mb-4 text-[#22c55e]">
+              <AlertTriangle className="w-7 h-7" />
+            </div>
+
+            <span className="text-[9px] font-bold text-[#22c55e] uppercase tracking-widest block mb-1">
+              Booking Notice
+            </span>
+            <h3 className="text-base font-black text-white uppercase mb-3">
+              Payment &amp; Receipt Instruction
+            </h3>
+
+            <div className="bg-neutral-900/70 border border-neutral-800 p-4 mb-5 text-left text-xs space-y-3">
+              <div className="flex items-start gap-2.5">
+                <div className="w-5 h-5 rounded-full bg-[#22c55e]/20 text-[#22c55e] font-black text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                  1
+                </div>
+                <p className="text-neutral-200 text-[11px] leading-relaxed">
+                  After completing payment in your <strong className="text-white">UPI app (GPay / PhonePe / Paytm)</strong> or bank, <strong className="text-[#22c55e]">please return immediately to this website</strong>.
+                </p>
+              </div>
+
+              <div className="flex items-start gap-2.5">
+                <div className="w-5 h-5 rounded-full bg-[#22c55e]/20 text-[#22c55e] font-black text-[10px] flex items-center justify-center shrink-0 mt-0.5">
+                  2
+                </div>
+                <p className="text-neutral-200 text-[11px] leading-relaxed">
+                  <strong className="text-white">Wait for the receipt:</strong> Do not close or refresh this page. Your official booking confirmation receipt will be generated automatically.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPaymentNoticeModal(false)}
+                className="w-full py-3.5 bg-[#22c55e] hover:bg-[#1db252] text-black font-black uppercase text-xs tracking-wider transition shadow-[2px_2px_0px_#000] cursor-pointer"
+              >
+                I Understand, Proceed to Book
+              </button>
+              <button
+                type="button"
+                onClick={handleCloseBooking}
+                className="w-full py-2 text-neutral-400 hover:text-white text-xs font-bold uppercase tracking-wider transition cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* BOOKING MODAL (BOTTOM DRAWER) */}
       {selectedSlot && (holdData ? holdTimeLeft > 0 : true) && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-xs z-50 flex items-end justify-center p-4">
@@ -3827,6 +3931,14 @@ export default function App() {
                     <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider">Balance at Venue</span>
                     <span className="font-bold text-neutral-300">₹{holdData.balanceAmount}</span>
                   </div>
+                </div>
+
+                {/* Return to website reminder */}
+                <div className="p-3 border border-[#22c55e]/30 bg-[#22c55e]/10 text-[#22c55e] flex items-start gap-2.5 text-[10px] font-bold">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-[#22c55e] mt-0.5" />
+                  <span className="leading-snug">
+                    Important: After paying via UPI or Card, please return directly to this website and wait for your official confirmation receipt.
+                  </span>
                 </div>
 
                 <div className="flex gap-3 pt-2">

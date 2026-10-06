@@ -23,3 +23,22 @@ export const authenticateUser = async (req, res, next) => {
     return res.status(401).json({ error: 'Unauthorized: Invalid token' });
   }
 };
+
+export const authenticateUserOptional = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+
+  const token = authHeader.split('Bearer ')[1];
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const userCheck = await query('SELECT id, name, phone, email FROM users WHERE id = $1', [decoded.id]);
+    if (userCheck.rows && userCheck.rows.length > 0) {
+      req.user = userCheck.rows[0];
+    }
+  } catch (error) {
+    // Soft ignore token expiration/invalidity for optional auth
+  }
+  next();
+};

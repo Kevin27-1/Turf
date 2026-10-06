@@ -9,7 +9,7 @@ import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { query, getDbEngine, getDbDiagnostics } from './db.js';
 import { seedSlots, ensureSlotsForDate } from './seed.js';
-import { authenticateUser } from './auth.js';
+import { authenticateUser, authenticateUserOptional } from './auth.js';
 import rateLimit from 'express-rate-limit';
 
 dotenv.config();
@@ -24,17 +24,20 @@ const CASHFREE_BASE_URL = isCashfreeTest
   ? 'https://sandbox.cashfree.com/pg' 
   : 'https://api.cashfree.com/pg';
 
-async function createCashfreeOrder({ orderId, orderAmount, customerId, customerName, customerEmail, customerPhone, orderNote }) {
+async function createCashfreeOrder({ orderId, orderAmount, customerId, customerName, customerEmail, customerPhone, orderNote, slotId, origin }) {
   const url = `${CASHFREE_BASE_URL}/orders`;
-  const sanitizedPhone = (customerPhone || '9876543210').replace(/[^0-9]/g, '').slice(-10) || '9876543210';
+  const sanitizedPhone = (customerPhone || '').replace(/[^0-9]/g, '').slice(-10);
+  if (!sanitizedPhone || sanitizedPhone.length !== 10) {
+    throw new Error('A valid 10-digit customer phone number is required to create a payment order.');
+  }
   const sanitizedCustomerId = (customerId || 'guest_player').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 45);
 
   // Cashfree production requires a valid HTTPS return_url
-  let baseUrl = process.env.FRONTEND_URL || 'https://goldenarm.in';
-  if (!baseUrl.startsWith('https://')) {
+  let baseUrl = origin || process.env.FRONTEND_URL;
+  if (!baseUrl || (!baseUrl.startsWith('https://') && !baseUrl.startsWith('http://localhost'))) {
     baseUrl = 'https://goldenarm.in';
   }
-  const returnUrl = `${baseUrl}/?order_id=${orderId}`;
+  const returnUrl = `${baseUrl.replace(/\/$/, '')}/?order_id=${orderId}`;
 
   const payload = {
     order_id: orderId,
@@ -47,7 +50,12 @@ async function createCashfreeOrder({ orderId, orderAmount, customerId, customerN
       customer_phone: sanitizedPhone
     },
     order_meta: {
-      return_url: returnUrl
+      return_url: returnUrl,
+      notify_url: `${baseUrl.replace(/\/$/, '')}/api/webhooks/cashfree`
+    },
+    order_tags: {
+      slot_id: String(slotId || ''),
+      user_id: String(customerId || '')
     },
     order_note: orderNote || 'Advance payment for Golden Arm Turf reservation'
   };
@@ -114,6 +122,9 @@ async function verifyCashfreeOrder(orderId) {
     orderAmount: orderData.order_amount,
     paymentId: paymentId || `cf_pay_${orderId}`,
     paymentMethod,
+    orderTags: orderData.order_tags || {},
+    customerId: orderData.customer_details?.customer_id,
+    customerPhone: orderData.customer_details?.customer_phone,
     raw: orderData
   };
 }
@@ -767,7 +778,7 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
     // 1. Revert any expired holds before trying to acquire ours
     await revertExpiredHolds();
 
-    const heldUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 minutes hold
+    const heldUntil = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes hold
     const now = new Date().toISOString();
 
     // 2. Try to hold the slot atomically (allows fresh available slots, expired holds, or re-holding by the same user)
@@ -795,8 +806,15 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
     const advanceAmount = Math.round((totalPrice * advPct) / 100);
     const balanceAmount = totalPrice - advanceAmount;
 
+    const userPhone = req.user?.phone?.replace(/[^0-9]/g, '').slice(-10);
+    if (!userPhone || userPhone.length !== 10) {
+      await query("UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [slot_id]);
+      return res.status(400).json({ error: 'A valid 10-digit registered phone number is required to book a slot.' });
+    }
+
     // 4. Create Cashfree order session
     const cfOrderId = `cf_${slot_id.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8)}_${Date.now().toString().slice(-8)}`;
+    const clientOrigin = req.body.origin || req.headers.origin;
     let cfOrder;
     try {
       cfOrder = await createCashfreeOrder({
@@ -804,8 +822,10 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
         orderAmount: advanceAmount,
         customerId: user_id,
         customerName: req.user?.name || 'Player',
-        customerPhone: req.user?.phone || '9876543210',
-        orderNote: `Slot booking ${slot.date} ${slot.start_time} (Golden Arm Turf)`
+        customerPhone: userPhone,
+        orderNote: `Slot booking ${slot.date} ${slot.start_time} (Golden Arm Turf)`,
+        slotId: slot_id,
+        origin: clientOrigin
       });
     } catch (cfErr) {
       console.error('[CASHFREE ERROR] Failed to create order session:', cfErr);
@@ -863,9 +883,9 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
 });
 
 // POST /api/bookings/verify (Verify Cashfree order status and confirm the booking)
-app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
+app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
   const order_id = req.body.order_id || req.body.razorpay_order_id || req.body.cf_order_id;
-  const user_id = req.user.id;
+  const user_id = req.user?.id;
 
   if (!order_id) {
     return res.status(400).json({ error: 'order_id is required for payment verification' });
@@ -890,41 +910,79 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
       [order_id]
     );
 
+    let booking;
+    let slotId;
+
     if (bookingCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Associated pending booking was not found.' });
+      // Self-healing recovery: Retrieve slot_id and user_id from Cashfree order tags
+      slotId = cfVerification.orderTags?.slot_id;
+      const targetUserId = user_id || cfVerification.orderTags?.user_id || cfVerification.customerId;
+
+      if (!slotId || !targetUserId) {
+        return res.status(404).json({ error: 'Associated booking or slot details could not be found.' });
+      }
+
+      const slotRes = await query('SELECT id, date, start_time, price FROM slots WHERE id = $1', [slotId]);
+      if (slotRes.rows.length === 0) {
+        return res.status(404).json({ error: 'Slot not found for this order.' });
+      }
+
+      const slot = slotRes.rows[0];
+      const totalPrice = slot.price;
+      const advancePaid = Number(cfVerification.orderAmount);
+      const balance = totalPrice - advancePaid;
+      const bookingId = crypto.randomUUID();
+      const createdAt = new Date().toISOString();
+      const paymentId = cfVerification.paymentId || req.body.payment_id || `cf_${order_id}`;
+
+      await query('BEGIN');
+      await query(
+        `INSERT INTO bookings (
+          id, slot_id, user_id, created_at, 
+          total_amount, advance_amount, advance_paid_amount, balance_amount, 
+          razorpay_order_id, payment_verified, booking_status, razorpay_payment_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [bookingId, slotId, targetUserId, createdAt, totalPrice, advancePaid, advancePaid, balance, order_id, true, 'confirmed', paymentId]
+      );
+      await query(
+        "UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1",
+        [slotId]
+      );
+      await query('COMMIT');
+
+      booking = { id: bookingId, slot_id: slotId, user_id: targetUserId };
+    } else {
+      booking = bookingCheck.rows[0];
+      slotId = booking.slot_id;
+
+      // If user is authenticated, ensure matching ownership
+      if (user_id && booking.user_id !== user_id) {
+        return res.status(403).json({ error: 'Forbidden: You cannot confirm a booking for another user.' });
+      }
+
+      // 3. Update database status in a transaction
+      await query('BEGIN');
+
+      const advancePaid = booking.advance_amount;
+      const balance = booking.total_amount - advancePaid;
+      const paymentId = cfVerification.paymentId || req.body.payment_id || req.body.cf_payment_id || `cf_${order_id}`;
+
+      // Confirm booking
+      await query(
+        `UPDATE bookings 
+         SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5 
+         WHERE razorpay_order_id = $6`,
+        [true, advancePaid, balance, 'confirmed', paymentId, order_id]
+      );
+
+      // Confirm slot status is permanently booked
+      await query(
+        "UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1",
+        [booking.slot_id]
+      );
+
+      await query('COMMIT');
     }
-
-    const booking = bookingCheck.rows[0];
-
-    // Ensure users cannot verify bookings they do not own
-    if (booking.user_id !== user_id) {
-      return res.status(403).json({ error: 'Forbidden: You cannot confirm a booking for another user.' });
-    }
-
-    const cancellationDeadline = null;
-
-    // 3. Update database status in a transaction
-    await query('BEGIN');
-
-    const advancePaid = booking.advance_amount;
-    const balance = booking.total_amount - advancePaid;
-    const paymentId = cfVerification.paymentId || req.body.payment_id || req.body.cf_payment_id || `cf_${order_id}`;
-
-    // Confirm booking
-    await query(
-      `UPDATE bookings 
-       SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5, cancellation_deadline = $6 
-       WHERE razorpay_order_id = $7`,
-      [true, advancePaid, balance, 'confirmed', paymentId, cancellationDeadline, order_id]
-    );
-
-    // Confirm slot status is permanently booked
-    await query(
-      "UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1",
-      [booking.slot_id]
-    );
-
-    await query('COMMIT');
 
     // 4. Fetch fully detailed confirmed booking record
     const updatedBookingRes = await query(
@@ -940,19 +998,19 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
       [booking.id]
     );
 
-    const updatedBooking = updatedBookingRes.rows[0];
+    const updatedBooking = updatedBookingRes.rows[0] || {};
     const formattedBooking = {
-      id: updatedBooking.id,
-      slot_id: updatedBooking.slot_id,
-      customer_name: updatedBooking.customer_name,
-      customer_phone: updatedBooking.customer_phone,
-      created_at: updatedBooking.created_at,
-      user_id: updatedBooking.user_id,
+      id: updatedBooking.id || booking.id,
+      slot_id: updatedBooking.slot_id || slotId,
+      customer_name: updatedBooking.customer_name || 'Player',
+      customer_phone: updatedBooking.customer_phone || cfVerification.customerPhone || '',
+      created_at: updatedBooking.created_at || new Date().toISOString(),
+      user_id: updatedBooking.user_id || booking.user_id,
       total_amount: updatedBooking.total_amount,
       advance_amount: updatedBooking.advance_amount,
       advance_paid_amount: updatedBooking.advance_paid_amount,
       balance_amount: updatedBooking.balance_amount,
-      booking_status: updatedBooking.booking_status,
+      booking_status: updatedBooking.booking_status || 'confirmed',
       cancellation_deadline: updatedBooking.cancellation_deadline,
       date: updatedBooking.date,
       start_time: updatedBooking.start_time,
@@ -978,16 +1036,17 @@ app.post('/api/bookings/verify', authenticateUser, async (req, res) => {
   }
 });
 
-// POST /api/webhooks/cashfree (Optional Cashfree Webhook listener for asynchronous events)
+// POST /api/webhooks/cashfree (Cashfree Webhook listener for asynchronous events)
 app.post('/api/webhooks/cashfree', express.json(), async (req, res) => {
   try {
     const payload = req.body;
-    const orderData = payload?.data?.order;
-    const paymentData = payload?.data?.payment;
+    const orderData = payload?.data?.order || payload?.order;
+    const paymentData = payload?.data?.payment || payload?.payment;
+    const orderId = orderData?.order_id || payload?.order_id || payload?.data?.order_id;
+    const isSuccess = paymentData?.payment_status === 'SUCCESS' || payload?.type === 'PAYMENT_SUCCESS_WEBHOOK' || payload?.event === 'ORDER_PAID';
 
-    if (orderData && paymentData && paymentData.payment_status === 'SUCCESS') {
-      const orderId = orderData.order_id;
-      const paymentId = String(paymentData.cf_payment_id || paymentData.payment_id || `cf_${orderId}`);
+    if (orderId && isSuccess) {
+      const paymentId = String(paymentData?.cf_payment_id || paymentData?.payment_id || `cf_${orderId}`);
 
       const bookingRes = await query('SELECT id, slot_id, total_amount, advance_amount, booking_status FROM bookings WHERE razorpay_order_id = $1', [orderId]);
       if (bookingRes.rows.length > 0) {
@@ -1002,6 +1061,37 @@ app.post('/api/webhooks/cashfree', express.json(), async (req, res) => {
           );
           await query("UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [booking.slot_id]);
           await query('COMMIT');
+          console.log(`[CASHFREE WEBHOOK SUCCESS] Confirmed booking ${booking.id} for order ${orderId}`);
+        }
+      } else {
+        // Self-heal: Fetch order from Cashfree to recover slot_id & user_id
+        try {
+          const cfVerification = await verifyCashfreeOrder(orderId);
+          if (cfVerification.orderStatus === 'PAID') {
+            const slotId = cfVerification.orderTags?.slot_id;
+            const userId = cfVerification.orderTags?.user_id || cfVerification.customerId;
+            if (slotId && userId) {
+              const slotRes = await query('SELECT price FROM slots WHERE id = $1', [slotId]);
+              const totalPrice = slotRes.rows[0]?.price || (cfVerification.orderAmount * 2.5);
+              const advancePaid = Number(cfVerification.orderAmount);
+              const balance = totalPrice - advancePaid;
+              const bookingId = crypto.randomUUID();
+              await query('BEGIN');
+              await query(
+                `INSERT INTO bookings (
+                  id, slot_id, user_id, created_at,
+                  total_amount, advance_amount, advance_paid_amount, balance_amount,
+                  razorpay_order_id, payment_verified, booking_status, razorpay_payment_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+                [bookingId, slotId, userId, new Date().toISOString(), totalPrice, advancePaid, advancePaid, balance, orderId, true, 'confirmed', paymentId]
+              );
+              await query("UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [slotId]);
+              await query('COMMIT');
+              console.log(`[CASHFREE WEBHOOK RECOVERED] Created and confirmed booking ${bookingId} for order ${orderId}`);
+            }
+          }
+        } catch (recoverErr) {
+          console.error('[CASHFREE WEBHOOK RECOVERY ERROR]:', recoverErr);
         }
       }
     }
