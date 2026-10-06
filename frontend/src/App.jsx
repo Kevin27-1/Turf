@@ -3486,11 +3486,26 @@ export default function App() {
                   </select>
                 </div>
 
-                <div className="border-t border-neutral-900 pt-5">
-                  <h4 className="text-[9px] font-bold text-neutral-600 uppercase tracking-widest mb-2 px-1">Linked Account</h4>
-                  <div className="border border-neutral-900 bg-neutral-950/20 p-4">
-                    <span className="text-[9px] text-neutral-500 uppercase block font-bold">Linked Phone Number</span>
-                    <span className="text-xs font-bold text-white mt-1 block">{profile.phone}</span>
+                <div className="border-t border-neutral-900 pt-5 space-y-4">
+                  <div>
+                    <h4 className="text-[9px] font-bold text-neutral-600 uppercase tracking-widest mb-2 px-1">Linked Account</h4>
+                    <div className="border border-neutral-900 bg-neutral-950/20 p-4">
+                      <span className="text-[9px] text-neutral-500 uppercase block font-bold">Linked Phone Number</span>
+                      <span className="text-xs font-bold text-white mt-1 block">{profile.phone || user?.phone || 'Guest'}</span>
+                    </div>
+                  </div>
+
+                  <div className="border border-neutral-900 bg-neutral-950/40 p-4 space-y-2">
+                    <span className="text-[9px] font-bold text-neutral-400 uppercase tracking-wider block">Privacy &amp; Data Rights (DPDP Act, 2023)</span>
+                    <p className="text-[10px] text-neutral-500 leading-normal">
+                      Under India's DPDP Act, 2023, you have the right to review, correct, or request complete erasure of your personal account data.
+                    </p>
+                    <a
+                      href="mailto:ratheeshpacheni@gmail.com?subject=DPDP%20Account%20Erasure%20Request"
+                      className="inline-block text-[10px] font-bold text-[#22c55e] hover:underline uppercase tracking-wider"
+                    >
+                      Request Account &amp; Data Deletion &rarr;
+                    </a>
                   </div>
                 </div>
 
@@ -3501,7 +3516,7 @@ export default function App() {
                       window.location.reload();
                     }
                   }}
-                  className="w-full py-4 border border-red-500 text-red-500 font-bold text-xs uppercase tracking-wider rounded-none hover:bg-red-500/5 transition mt-6"
+                  className="w-full py-4 border border-red-500 text-red-500 font-bold text-xs uppercase tracking-wider rounded-none hover:bg-red-500/5 transition mt-6 cursor-pointer"
                 >
                   Log Out Profile
                 </button>
@@ -3768,22 +3783,38 @@ export default function App() {
                   
                   <p><strong className="text-white">3. Pricing &amp; Venue Rules</strong><br/>
                   Rates range between ₹{publicSettings.price_per_slot_day || 1200} – ₹{publicSettings.price_per_slot_night || 1500} per 60-minute slot. Advance payments reserve the slot, and remaining balance payments are settled at the venue prior to play. Unsportsmanlike conduct, venue damage, or illegal activities are strictly prohibited.</p>
+
+                  <p><strong className="text-white">4. Age Eligibility (Minors &amp; Children Safeguard)</strong><br/>
+                  In accordance with Section 9 of the Digital Personal Data Protection (DPDP) Act, 2023, individuals creating an account or reserving slots online must be at least 18 years of age. Minors under 18 years may only use the turf facility under the direct supervision, reservation, and consent of a parent or legal guardian.</p>
                 </>
               )}
 
               {activePolicyModal === 'privacy' && (
                 <>
-                  <p><strong className="text-white">1. Data Collection</strong><br/>
-                  GOLDEN ARM collects customer names and phone numbers strictly for slot reservation, identity verification, OTP authentication, and sending booking confirmations.</p>
+                  <p><strong className="text-white">1. Data Collection &amp; Purpose Limitation (DPDP Act, 2023)</strong><br/>
+                  GOLDEN ARM collects digital personal data—specifically customer Name, Phone Number, and optional Email Address—strictly for necessary and specified purposes: processing slot reservations, user identity verification via OTP, issuing digital booking passes, and communicating payment receipts. In adherence to data minimization standards, we do not collect biometric identifiers, government IDs, or live location tracking.</p>
                   
-                  <p><strong className="text-white">2. Use of Information</strong><br/>
-                  Collected information is used exclusively to facilitate your physical sports turf booking and manage your court reservation access. We do not sell, trade, or share your personal data with unauthorized third parties.</p>
+                  <p><strong className="text-white">2. Payment Security &amp; Financial Data</strong><br/>
+                  All advance transactions are processed securely through RBI-authorized payment gateways (Cashfree / Razorpay). GOLDEN ARM does not collect, store, or process customer debit/credit card numbers, CVVs, or UPI PINs on its servers.</p>
                   
-                  <p><strong className="text-white">3. Data Security</strong><br/>
-                  We implement secure database standards to protect customer contact information against unauthorized access.</p>
+                  <p><strong className="text-white">3. Security Safeguards &amp; Storage Limitation</strong><br/>
+                  Customer account credentials are secured using industry-standard salted hashing (bcrypt) and encrypted transport (HTTPS/TLS). Personal data is retained strictly for the duration necessary to service court bookings and meet statutory financial reporting obligations under Indian law.</p>
                   
-                  <p><strong className="text-white">4. SMS & Email Communications</strong><br/>
-                  By creating an account, you consent to receive transactional SMS (one-time passwords, booking status alerts, payment receipts) and occasional promotional announcements. We do not engage in spam. You may opt out of promotional messages at any time by contacting our support desk or writing to ratheeshpacheni@gmail.com.</p>
+                  <p><strong className="text-white">4. Rights of the Data Principal</strong><br/>
+                  Under the Digital Personal Data Protection Act, 2023, customers (Data Principals) possess the right to:
+                  <br/>• <strong>Right to Access:</strong> Inquire about personal data processed by the facility.
+                  <br/>• <strong>Right to Correction &amp; Erasure:</strong> Request correction of inaccurate information or complete deletion of account records.
+                  <br/>• <strong>Right to Withdraw Consent:</strong> Withdraw consent for non-essential communications at any time via App Settings or by notifying the Grievance Officer.
+                  <br/>Account deletion requests will be completed within 30 calendar days, retaining only records required by tax and accounting statutes.</p>
+
+                  <p><strong className="text-white">5. Grievance Redressal Mechanism (Section 8(10) DPDP Act)</strong><br/>
+                  If you have questions, concerns, or grievances regarding your personal data or wish to exercise your erasure rights, please contact our designated Grievance Redressal Officer:
+                  <br/><span className="text-[#22c55e] font-bold">Grievance Redressal Officer:</span> Ratheesh Pacheni
+                  <br/><span className="text-neutral-400">Designation:</span> Managing Partner / Data Grievance Officer
+                  <br/><span className="text-neutral-400">Enterprise:</span> GOLDEN ARM SPORTS TURF
+                  <br/><span className="text-neutral-400">Address:</span> Sports City Complex, Alakode, Kannur, Kerala – 670571
+                  <br/><span className="text-neutral-400">Email:</span> <a href="mailto:ratheeshpacheni@gmail.com?subject=DPDP%20Data%20Grievance%20Request" className="text-[#22c55e] underline">ratheeshpacheni@gmail.com</a>
+                  <br/>All grievances are formally acknowledged within 48 hours and resolved within 30 calendar days. If a grievance is not redressed satisfactorily, you maintain the statutory right to register a complaint with the Data Protection Board of India.</p>
                 </>
               )}
 
