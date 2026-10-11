@@ -51,11 +51,13 @@ async function createCashfreeOrder({ orderId, orderAmount, customerId, customerN
     },
     order_meta: {
       return_url: returnUrl,
-      notify_url: `${baseUrl.replace(/\/$/, '')}/api/webhooks/cashfree`
+      notify_url: `${(process.env.BACKEND_URL || baseUrl).replace(/\/$/, '')}/api/webhooks/cashfree`
     },
     order_tags: {
       slot_id: String(slotId || ''),
-      user_id: String(customerId || '')
+      user_id: String(customerId || ''),
+      customer_name: String(customerName || 'Player').substring(0, 50),
+      customer_phone: String(sanitizedPhone || '').substring(0, 15)
     },
     order_note: orderNote || 'Advance payment for Golden Arm Turf reservation'
   };
@@ -124,6 +126,7 @@ async function verifyCashfreeOrder(orderId) {
     paymentMethod,
     orderTags: orderData.order_tags || {},
     customerId: orderData.customer_details?.customer_id,
+    customerName: orderData.customer_details?.customer_name,
     customerPhone: orderData.customer_details?.customer_phone,
     raw: orderData
   };
@@ -586,7 +589,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
-// Revert slots that have been held longer than 5 minutes back to available
+// Revert slots that have been held longer than 10 minutes or orphaned back to available
 async function revertExpiredHolds() {
   try {
     const now = new Date().toISOString();
@@ -594,18 +597,55 @@ async function revertExpiredHolds() {
       "UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE status = 'held' AND held_until < $1",
       [now]
     );
-    // Clean up orphaned unpaid/pending booking holds older than 5 minutes
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    // Clean up orphaned unpaid/pending booking holds older than 15 minutes (allowing players full checkout window)
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
     await query(
       "DELETE FROM bookings WHERE (booking_status = 'pending' OR advance_paid_amount = 0 OR advance_paid_amount IS NULL) AND booking_status NOT IN ('confirmed', 'completed', 'cancelled') AND created_at < $1",
-      [fiveMinutesAgo]
+      [fifteenMinutesAgo]
     );
+
+    // Self-healing: Reconcile any orphaned 'booked' slots that have NO confirmed booking
+    await reconcileOrphanedBookedSlots();
   } catch (err) {
     console.error('[HOLD EXPIRE ERROR] Failed to automatically revert expired slot holds:', err);
   }
 }
 
-// Clean up expired holds every minute in the background
+// Self-healing orphan slot reconciler
+async function reconcileOrphanedBookedSlots() {
+  try {
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const orphanedSlotsRes = await query(
+      `SELECT s.id, s.date, s.start_time FROM slots s
+       WHERE s.status = 'booked'
+         AND s.date >= $1
+         AND NOT EXISTS (
+           SELECT 1 FROM bookings b
+           WHERE b.slot_id = s.id
+             AND (
+               (b.booking_status IN ('confirmed', 'completed') AND b.advance_paid_amount > 0)
+               OR (b.booking_status = 'pending' AND b.created_at >= $2)
+             )
+         )`,
+      [todayStr, fifteenMinutesAgo]
+    );
+
+    if (orphanedSlotsRes.rows && orphanedSlotsRes.rows.length > 0) {
+      for (const orphan of orphanedSlotsRes.rows) {
+        await query(
+          "UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1",
+          [orphan.id]
+        );
+        console.log(`[SELF-HEAL] Reconciled orphaned booked slot ${orphan.id} (${orphan.date} ${orphan.start_time}) back to available.`);
+      }
+    }
+  } catch (err) {
+    console.error('[SELF-HEAL ERROR] Failed to reconcile orphaned booked slots:', err);
+  }
+}
+
+// Clean up expired holds and reconcile orphaned slots every minute in the background
 setInterval(revertExpiredHolds, 60000);
 
 // GET /api/slots?date=YYYY-MM-DD
@@ -646,13 +686,13 @@ app.get('/api/bookings', authenticateUser, async (req, res) => {
   try {
     const bookingsRes = await query(
       `SELECT b.id, b.slot_id, b.created_at, b.user_id,
-              u.name as customer_name, u.phone as customer_phone,
+              COALESCE(u.name, 'Player') as customer_name, COALESCE(u.phone, '') as customer_phone,
               b.total_amount, b.advance_amount, b.advance_paid_amount, b.balance_amount, b.booking_status,
               b.cancellation_deadline, b.cancelled_at, b.refund_amount, b.refund_status,
               s.date, s.start_time, s.end_time, s.price
        FROM bookings b
        JOIN slots s ON b.slot_id = s.id
-       JOIN users u ON b.user_id = u.id
+       LEFT JOIN users u ON b.user_id = u.id
        WHERE b.user_id = $1 
          AND b.advance_paid_amount > 0 
          AND b.booking_status IN ('confirmed', 'completed', 'cancelled')
@@ -800,6 +840,15 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
     }
 
     const slot = slotRes.rows[0];
+
+    // Validate that slot has not elapsed in IST
+    const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const currentTimeIST = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false }).slice(0, 5);
+    if (slot.date < todayIST || (slot.date === todayIST && slot.start_time <= currentTimeIST)) {
+      await query("UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [slot_id]);
+      return res.status(400).json({ error: 'This time slot has already passed and cannot be booked.' });
+    }
+
     const totalPrice = slot.price;
     const settings = await getAdminSettings();
     const advPct = settings.advance_payment_percentage || 40;
@@ -863,6 +912,12 @@ app.post('/api/bookings/hold', authenticateUser, async (req, res) => {
       ]
     );
 
+    // Persist customer metadata with pending booking immediately
+    await query(
+      'UPDATE bookings SET customer_name = $1, customer_phone = $2 WHERE id = $3',
+      [req.user?.name || 'Player', userPhone, bookingId]
+    ).catch(() => {});
+
     res.status(200).json({
       success: true,
       order_id: cfOrder.order_id,
@@ -917,12 +972,14 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
       // Self-healing recovery: Retrieve slot_id and user_id from Cashfree order tags
       slotId = cfVerification.orderTags?.slot_id;
       const targetUserId = user_id || cfVerification.orderTags?.user_id || cfVerification.customerId;
+      const customerName = cfVerification.orderTags?.customer_name || cfVerification.customerName || req.user?.name || 'Player';
+      const customerPhone = cfVerification.orderTags?.customer_phone || cfVerification.customerPhone || req.user?.phone || '';
 
       if (!slotId || !targetUserId) {
         return res.status(404).json({ error: 'Associated booking or slot details could not be found.' });
       }
 
-      const slotRes = await query('SELECT id, date, start_time, price FROM slots WHERE id = $1', [slotId]);
+      const slotRes = await query('SELECT id, date, start_time, end_time, price FROM slots WHERE id = $1', [slotId]);
       if (slotRes.rows.length === 0) {
         return res.status(404).json({ error: 'Slot not found for this order.' });
       }
@@ -945,12 +1002,16 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
         [bookingId, slotId, targetUserId, createdAt, totalPrice, advancePaid, advancePaid, balance, order_id, true, 'confirmed', paymentId]
       );
       await query(
+        "UPDATE bookings SET customer_name = $1, customer_phone = $2 WHERE id = $3",
+        [customerName, customerPhone, bookingId]
+      ).catch(() => {});
+      await query(
         "UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1",
         [slotId]
       );
       await query('COMMIT');
 
-      booking = { id: bookingId, slot_id: slotId, user_id: targetUserId };
+      booking = { id: bookingId, slot_id: slotId, user_id: targetUserId, customer_name: customerName, customer_phone: customerPhone };
     } else {
       booking = bookingCheck.rows[0];
       slotId = booking.slot_id;
@@ -966,13 +1027,15 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
       const advancePaid = booking.advance_amount;
       const balance = booking.total_amount - advancePaid;
       const paymentId = cfVerification.paymentId || req.body.payment_id || req.body.cf_payment_id || `cf_${order_id}`;
+      const customerName = cfVerification.customerName || cfVerification.orderTags?.customer_name || booking.customer_name || req.user?.name || 'Player';
+      const customerPhone = cfVerification.customerPhone || cfVerification.orderTags?.customer_phone || booking.customer_phone || req.user?.phone || '';
 
-      // Confirm booking
+      // Confirm booking with customer details
       await query(
         `UPDATE bookings 
-         SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5 
-         WHERE razorpay_order_id = $6`,
-        [true, advancePaid, balance, 'confirmed', paymentId, order_id]
+         SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5, customer_name = $6, customer_phone = $7 
+         WHERE razorpay_order_id = $8`,
+        [true, advancePaid, balance, 'confirmed', paymentId, customerName, customerPhone, order_id]
       );
 
       // Confirm slot status is permanently booked
@@ -987,13 +1050,13 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
     // 4. Fetch fully detailed confirmed booking record
     const updatedBookingRes = await query(
       `SELECT b.id, b.slot_id, b.created_at, b.user_id,
-              u.name as customer_name, u.phone as customer_phone,
+              COALESCE(u.name, 'Player') as customer_name, COALESCE(u.phone, '') as customer_phone,
               b.total_amount, b.advance_amount, b.advance_paid_amount, b.balance_amount, b.booking_status,
               b.cancellation_deadline, b.cancelled_at, b.refund_amount, b.refund_status,
               s.date, s.start_time, s.end_time, s.price
        FROM bookings b
        JOIN slots s ON b.slot_id = s.id
-       JOIN users u ON b.user_id = u.id
+       LEFT JOIN users u ON b.user_id = u.id
        WHERE b.id = $1`,
       [booking.id]
     );
@@ -1002,8 +1065,8 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
     const formattedBooking = {
       id: updatedBooking.id || booking.id,
       slot_id: updatedBooking.slot_id || slotId,
-      customer_name: updatedBooking.customer_name || 'Player',
-      customer_phone: updatedBooking.customer_phone || cfVerification.customerPhone || '',
+      customer_name: updatedBooking.customer_name || booking.customer_name || 'Player',
+      customer_phone: updatedBooking.customer_phone || booking.customer_phone || cfVerification.customerPhone || '',
       created_at: updatedBooking.created_at || new Date().toISOString(),
       user_id: updatedBooking.user_id || booking.user_id,
       total_amount: updatedBooking.total_amount,
@@ -1048,16 +1111,23 @@ app.post('/api/webhooks/cashfree', express.json(), async (req, res) => {
     if (orderId && isSuccess) {
       const paymentId = String(paymentData?.cf_payment_id || paymentData?.payment_id || `cf_${orderId}`);
 
-      const bookingRes = await query('SELECT id, slot_id, total_amount, advance_amount, booking_status FROM bookings WHERE razorpay_order_id = $1', [orderId]);
+      const bookingRes = await query(
+        'SELECT b.id, b.slot_id, b.user_id, b.total_amount, b.advance_amount, b.booking_status, b.customer_name, b.customer_phone FROM bookings b WHERE b.razorpay_order_id = $1',
+        [orderId]
+      );
       if (bookingRes.rows.length > 0) {
         const booking = bookingRes.rows[0];
         if (booking.booking_status !== 'confirmed') {
           const advancePaid = booking.advance_amount;
           const balance = booking.total_amount - advancePaid;
+          const custName = orderData?.customer_details?.customer_name || payload?.customer_details?.customer_name || booking.customer_name || 'Player';
+          const custPhone = orderData?.customer_details?.customer_phone || payload?.customer_details?.customer_phone || booking.customer_phone || '';
           await query('BEGIN');
           await query(
-            `UPDATE bookings SET payment_verified = true, advance_paid_amount = $1, balance_amount = $2, booking_status = 'confirmed', razorpay_payment_id = $3 WHERE razorpay_order_id = $4`,
-            [advancePaid, balance, paymentId, orderId]
+            `UPDATE bookings 
+             SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5, customer_name = $6, customer_phone = $7 
+             WHERE razorpay_order_id = $8`,
+            [true, advancePaid, balance, 'confirmed', paymentId, custName, custPhone, orderId]
           );
           await query("UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [booking.slot_id]);
           await query('COMMIT');
@@ -1070,8 +1140,10 @@ app.post('/api/webhooks/cashfree', express.json(), async (req, res) => {
           if (cfVerification.orderStatus === 'PAID') {
             const slotId = cfVerification.orderTags?.slot_id;
             const userId = cfVerification.orderTags?.user_id || cfVerification.customerId;
+            const custName = cfVerification.orderTags?.customer_name || cfVerification.customerName || 'Player';
+            const custPhone = cfVerification.orderTags?.customer_phone || cfVerification.customerPhone || '';
             if (slotId && userId) {
-              const slotRes = await query('SELECT price FROM slots WHERE id = $1', [slotId]);
+              const slotRes = await query('SELECT price, date, start_time, end_time FROM slots WHERE id = $1', [slotId]);
               const totalPrice = slotRes.rows[0]?.price || (cfVerification.orderAmount * 2.5);
               const advancePaid = Number(cfVerification.orderAmount);
               const balance = totalPrice - advancePaid;
@@ -1085,6 +1157,10 @@ app.post('/api/webhooks/cashfree', express.json(), async (req, res) => {
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
                 [bookingId, slotId, userId, new Date().toISOString(), totalPrice, advancePaid, advancePaid, balance, orderId, true, 'confirmed', paymentId]
               );
+              await query(
+                'UPDATE bookings SET customer_name = $1, customer_phone = $2 WHERE id = $3',
+                [custName, custPhone, bookingId]
+              ).catch(() => {});
               await query("UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [slotId]);
               await query('COMMIT');
               console.log(`[CASHFREE WEBHOOK RECOVERED] Created and confirmed booking ${bookingId} for order ${orderId}`);
@@ -1223,13 +1299,13 @@ app.get('/api/admin/bookings', authenticateAdmin, async (req, res) => {
       // Today's Bookings - ONLY passes where advance has actually been paid
       sql = `
         SELECT b.id, b.slot_id, b.created_at, b.user_id,
-               u.name as customer_name, u.phone as customer_phone,
+               COALESCE(u.name, 'Player') as customer_name, COALESCE(u.phone, '') as customer_phone,
                b.total_amount, b.advance_amount, b.advance_paid_amount, b.balance_amount, b.booking_status,
                b.cancellation_deadline, b.balance_payment_status,
                s.date, s.start_time, s.end_time, s.price
         FROM bookings b
         JOIN slots s ON b.slot_id = s.id
-        JOIN users u ON b.user_id = u.id
+        LEFT JOIN users u ON b.user_id = u.id
         WHERE s.date = $1 
           AND b.advance_paid_amount > 0 
           AND b.booking_status IN ('confirmed', 'completed')
@@ -1240,13 +1316,13 @@ app.get('/api/admin/bookings', authenticateAdmin, async (req, res) => {
       // Pending Balances
       sql = `
         SELECT b.id, b.slot_id, b.created_at, b.user_id,
-               u.name as customer_name, u.phone as customer_phone,
+               COALESCE(u.name, 'Player') as customer_name, COALESCE(u.phone, '') as customer_phone,
                b.total_amount, b.advance_amount, b.advance_paid_amount, b.balance_amount, b.booking_status,
                b.cancellation_deadline, b.balance_payment_status,
                s.date, s.start_time, s.end_time, s.price
         FROM bookings b
         JOIN slots s ON b.slot_id = s.id
-        JOIN users u ON b.user_id = u.id
+        LEFT JOIN users u ON b.user_id = u.id
         WHERE b.balance_payment_status = $1 
           AND b.booking_status = $2 
           AND b.advance_paid_amount > 0
@@ -1257,13 +1333,13 @@ app.get('/api/admin/bookings', authenticateAdmin, async (req, res) => {
       // Cancellations Log
       sql = `
         SELECT b.id, b.slot_id, b.created_at, b.user_id,
-               u.name as customer_name, u.phone as customer_phone,
+               COALESCE(u.name, 'Player') as customer_name, COALESCE(u.phone, '') as customer_phone,
                b.total_amount, b.advance_amount, b.advance_paid_amount, b.balance_amount, b.booking_status,
                b.cancellation_deadline, b.cancelled_at, b.refund_amount, b.refund_status,
                s.date, s.start_time, s.end_time, s.price
         FROM bookings b
         JOIN slots s ON b.slot_id = s.id
-        JOIN users u ON b.user_id = u.id
+        LEFT JOIN users u ON b.user_id = u.id
         WHERE b.booking_status = $1 AND b.advance_paid_amount > 0
         ORDER BY b.cancelled_at DESC
       `;
@@ -1359,7 +1435,7 @@ app.post('/api/admin/slots/unblock', authenticateAdmin, async (req, res) => {
   try {
     await query('BEGIN');
     for (const slotId of slot_ids) {
-      await query("UPDATE slots SET status = $1 WHERE id = $2", ['available', slotId]);
+      await query("UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [slotId]);
     }
     await query('COMMIT');
     res.json({ success: true, message: 'Slots unblocked successfully' });

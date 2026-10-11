@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { getFirebaseAuth, signInWithGoogle } from './firebase.js';
 import NotFound from './NotFound.jsx';
 
@@ -198,6 +198,7 @@ export default function App() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [activePolicyModal, setActivePolicyModal] = useState(null); // null | 'about' | 'contact' | 'terms' | 'privacy' | 'cancellation'
+  const hasVerifiedRedirectRef = useRef(false);
 
   const galleryImages = [
     { src: '/turf_real_day.webp', caption: 'Golden Arm Turf Pitch View (Day)' },
@@ -237,13 +238,16 @@ export default function App() {
     initializeAuth();
   }, []);
 
-  // Generate dates on Mount
+  // Generate dates on Mount (Strict IST alignment)
   useEffect(() => {
+    const istTodayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const [y, m, d] = istTodayStr.split('-').map(Number);
+    const baseDate = new Date(y, m - 1, d, 12, 0, 0);
     const list = [];
     for (let i = 0; i < 7; i++) {
-      const d = new Date();
-      d.setDate(d.getDate() + i);
-      list.push(d);
+      const nextDate = new Date(baseDate);
+      nextDate.setDate(baseDate.getDate() + i);
+      list.push(nextDate);
     }
     setDates(list);
     if (list.length > 0) {
@@ -262,7 +266,8 @@ export default function App() {
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const urlOrderId = urlParams.get('order_id');
-    if (urlOrderId) {
+    if (urlOrderId && !hasVerifiedRedirectRef.current) {
+      hasVerifiedRedirectRef.current = true;
       const verifyFromRedirect = async () => {
         const token = localStorage.getItem('jwt_token');
         setBookingLoading(true);
@@ -281,8 +286,13 @@ export default function App() {
             if (verifyRes.ok && verifyData && verifyData.success && verifyData.booking) {
               setConfirmedBooking(verifyData.booking);
               setCurrentTab('book');
+              if (verifyData.booking.slot?.date) {
+                setSelectedDate(verifyData.booking.slot.date);
+              }
               await fetchBookings();
-              if (selectedDate) fetchSlots(selectedDate, true);
+              if (selectedDate || verifyData.booking.slot?.date) {
+                fetchSlots(verifyData.booking.slot?.date || selectedDate, true);
+              }
               break;
             }
             if (verifyData?.error && !verifyData.error.includes('PENDING') && !verifyData.error.includes('not completed')) {
@@ -301,7 +311,7 @@ export default function App() {
       };
       verifyFromRedirect();
     }
-  }, [selectedDate]);
+  }, []);
 
   // Fetch slots whenever selectedDate changes and tab is 'book'
   useEffect(() => {
@@ -465,16 +475,15 @@ export default function App() {
 
   const fetchLiveTeaser = async () => {
     try {
-      const todayStr = toLocalDateString(new Date());
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      const currentTimeIST = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false }).slice(0, 5);
       const res = await fetch(`/api/slots?date=${todayStr}`);
       if (!res.ok) throw new Error();
       const data = await res.json();
 
       // Filter slots starting in the future that are available
-      const currentHour = new Date().getHours();
-      const futureAvailable = data.filter(s => {
-        const slotHour = parseInt(s.start_time.split(':')[0], 10);
-        return s.status === 'available' && slotHour > currentHour;
+      const futureAvailable = (Array.isArray(data) ? data : []).filter(s => {
+        return s.status === 'available' && s.start_time > currentTimeIST;
       });
 
       if (futureAvailable.length > 0) {
@@ -482,14 +491,8 @@ export default function App() {
         setLiveTeaserText(`Next available slot: ${formatTime12h(nextSlot.start_time)} today`);
         setLiveTeaserSlotId(nextSlot.id);
       } else {
-        const totalOpenToday = data.filter(s => s.status === 'available').length;
-        if (totalOpenToday > 0) {
-          setLiveTeaserText(`${totalOpenToday} slots open today`);
-          setLiveTeaserSlotId(null);
-        } else {
-          setLiveTeaserText('Fully Booked Today. Reserve tomorrow!');
-          setLiveTeaserSlotId(null);
-        }
+        setLiveTeaserText('All remaining slots for today are booked or passed. Reserve tomorrow!');
+        setLiveTeaserSlotId(null);
       }
     } catch (err) {
       console.error('Teaser fetch failed:', err);
@@ -534,6 +537,16 @@ export default function App() {
 
   const handleOpenBooking = async (slot) => {
     if (slot.status === 'booked' || slot.status === 'blocked') return;
+    
+    // Prevent holding or paying for past slots
+    const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const currentTimeIST = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false }).slice(0, 5);
+    const slotDate = slot.date || selectedDate;
+    if (slotDate < todayIST || (slotDate === todayIST && slot.start_time <= currentTimeIST)) {
+      setError('This time slot has already passed and cannot be booked.');
+      return;
+    }
+
     if (!user) {
       setError('Please log in from the Profile tab to book a slot.');
       setCurrentTab('profile');
@@ -628,10 +641,13 @@ export default function App() {
         mode: holdData.cfEnvironment === 'production' ? 'production' : 'sandbox'
       });
 
-      // 3. Trigger Cashfree Checkout in modal mode
+      // 3. Trigger Cashfree Checkout
+      // On mobile devices, non-GPay UPI apps (PhonePe, Paytm, Cred, BHIM) require native app switching
+      // which kills/suspends in-page modal iframes. Using '_self' navigates seamlessly and returns to ?order_id=...
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
       const result = await cashfree.checkout({
         paymentSessionId: holdData.paymentSessionId,
-        redirectTarget: '_modal'
+        redirectTarget: isMobileDevice ? '_self' : '_modal'
       });
 
       if (result && result.error) {
@@ -1361,12 +1377,14 @@ export default function App() {
     const todayStr = toLocalDateString(new Date());
     const currentHour = new Date().getHours();
 
+    const currentTimeIST = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false }).slice(0, 5);
     const upcoming = validBookings.filter(b => {
-      if (!b.slot || !b.slot.date) return false;
-      if (b.slot.date > todayStr) return true;
-      if (b.slot.date === todayStr) {
-        const slotHour = parseInt(b.slot.start_time.split(':')[0], 10);
-        return slotHour > currentHour;
+      const slotDate = b.slot?.date || b.date;
+      const slotStartTime = b.slot?.start_time || b.start_time;
+      if (!slotDate) return false;
+      if (slotDate > todayStr) return true;
+      if (slotDate === todayStr && slotStartTime) {
+        return slotStartTime > currentTimeIST;
       }
       return false;
     }).length;
@@ -1376,11 +1394,14 @@ export default function App() {
 
   // Cutoff eligibility checker (4 hours)
   const isEligibleForCancellation = (booking) => {
-    const [year, month, day] = booking.slot.date.split('-').map(Number);
-    const [hour, minute] = booking.slot.start_time.split(':').map(Number);
-    const slotStartTime = new Date(year, month - 1, day, hour, minute, 0, 0);
+    const slotDate = booking?.slot?.date || booking?.date;
+    const slotStartTime = booking?.slot?.start_time || booking?.start_time;
+    if (!slotDate || !slotStartTime) return false;
+    const [year, month, day] = slotDate.split('-').map(Number);
+    const [hour, minute] = slotStartTime.split(':').map(Number);
+    const slotStartTimeDate = new Date(year, month - 1, day, hour, minute, 0, 0);
 
-    const timeDiffMs = slotStartTime.getTime() - Date.now();
+    const timeDiffMs = slotStartTimeDate.getTime() - Date.now();
     const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
     return timeDiffHours >= 4;
   };
@@ -1416,19 +1437,9 @@ export default function App() {
     }, 200);
   };
 
-  const todayStr = toLocalDateString(new Date());
-  const nowTime = new Date();
-  const currentHour = nowTime.getHours();
-  const currentMin = nowTime.getMinutes();
-
-  const activeSlots = slots.filter((slot) => {
-    if (slot.date === todayStr) {
-      const [slotHour, slotMin] = slot.start_time.split(':').map(Number);
-      if (slotHour < currentHour) return false;
-      if (slotHour === currentHour && slotMin <= currentMin) return false;
-    }
-    return true;
-  });
+  const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const currentTimeIST = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false }).slice(0, 5);
+  const todayStr = todayIST;
 
   const stats = getStats();
 
@@ -1995,9 +2006,13 @@ export default function App() {
               <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">
                 Hourly Blocks
               </label>
-              {activeSlots.length > 0 && (
+              {slots.length > 0 && (
                 <span className="text-[10px] text-[#22c55e] font-bold uppercase tracking-widest">
-                  {activeSlots.filter(s => s.status === 'available').length} Left
+                  {slots.filter(s => {
+                    const sDate = s.date || selectedDate;
+                    const isPast = sDate < todayIST || (sDate === todayIST && s.start_time <= currentTimeIST);
+                    return s.status === 'available' && !isPast;
+                  }).length} Left
                 </span>
               )}
             </div>
@@ -2015,7 +2030,7 @@ export default function App() {
               </div>
             )}
 
-            {!loading && !error && activeSlots.length === 0 && (
+            {!loading && !error && slots.length === 0 && (
               <div className="border border-neutral-900 bg-neutral-955/40 p-6 rounded-none text-center mb-6 flex flex-col items-center">
                 <Calendar className="w-10 h-10 text-neutral-700 mb-2" />
                 <p className="text-xs font-bold text-white mb-1 uppercase tracking-wider">No Slots Available</p>
@@ -2047,13 +2062,15 @@ export default function App() {
               </div>
             )}
 
-            {!loading && !error && activeSlots.length > 0 && (
+            {!loading && !error && slots.length > 0 && (
               <div className="grid grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto pr-1 no-scrollbar pb-6">
-                {activeSlots.map((slot) => {
+                {slots.map((slot) => {
+                  const slotDate = slot.date || selectedDate;
                   const isBooked = slot.status === 'booked' || slot.status === 'blocked';
                   const isHeldByOthers = slot.status === 'held' && slot.held_by_user_id !== user?.id;
                   const isHeldByMe = slot.status === 'held' && slot.held_by_user_id === user?.id;
-                  const isDisabled = isBooked || isHeldByOthers;
+                  const isPast = slotDate < todayIST || (slotDate === todayIST && slot.start_time <= currentTimeIST);
+                  const isDisabled = isBooked || isHeldByOthers || isPast;
 
                   return (
                     <button
@@ -2063,7 +2080,7 @@ export default function App() {
                       disabled={isDisabled}
                       className={`p-3 border flex flex-col text-left transition relative rounded-none ${
                         isDisabled
-                          ? 'bg-neutral-950 border-neutral-900 text-neutral-600 cursor-not-allowed select-none'
+                          ? 'bg-neutral-950 border-neutral-900 text-neutral-600 cursor-not-allowed select-none opacity-60'
                           : isHeldByMe
                             ? 'bg-neutral-900/60 border-[#22c55e] hover:border-[#22c55e] active:scale-[0.97]'
                             : 'bg-neutral-900/40 border-neutral-800 hover:border-[#22c55e] active:scale-[0.97] hover:bg-[#22c55e]/[0.02]'
@@ -2098,7 +2115,12 @@ export default function App() {
                           Held
                         </span>
                       )}
-                      {isHeldByMe && (
+                      {isPast && !isBooked && (
+                        <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-neutral-600">
+                          Expired
+                        </span>
+                      )}
+                      {isHeldByMe && !isPast && (
                         <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-[#22c55e] animate-pulse">
                           Your Hold
                         </span>
@@ -2174,7 +2196,7 @@ export default function App() {
                       <div>
                         <span className="text-[9px] uppercase font-bold tracking-wider text-neutral-500 block">Customer</span>
                         <span className="font-bold text-white mt-0.5 block truncate">
-                          {confirmedBooking.customer_name}
+                          {confirmedBooking.customer_name || user?.name || 'Player'}
                         </span>
                       </div>
                       <div>
@@ -2211,7 +2233,7 @@ export default function App() {
                     <div className="pt-2.5 border-t border-neutral-900">
                       <span className="text-[9px] uppercase font-bold tracking-wider text-neutral-500 block">Phone</span>
                       <span className="font-bold text-neutral-400 mt-0.5 block">
-                        {confirmedBooking.customer_phone}
+                        {confirmedBooking.customer_phone || user?.phone || ''}
                       </span>
                     </div>
                   </div>
@@ -2256,8 +2278,12 @@ export default function App() {
                     const isCancelled = b.booking_status === 'cancelled';
                     
                     // Check if upcoming
-                    const [year, month, day] = b.slot.date.split('-').map(Number);
-                    const [hour, minute] = b.slot.start_time.split(':').map(Number);
+                    const slotDateStr = b.slot?.date || b.date;
+                    const slotStartTimeStr = b.slot?.start_time || b.start_time;
+                    const slotEndTimeStr = b.slot?.end_time || b.end_time;
+                    if (!slotDateStr || !slotStartTimeStr) return null;
+                    const [year, month, day] = slotDateStr.split('-').map(Number);
+                    const [hour, minute] = slotStartTimeStr.split(':').map(Number);
                     const slotStartTime = new Date(year, month - 1, day, hour, minute, 0, 0);
                     const isUpcoming = slotStartTime > new Date();
 
@@ -2287,17 +2313,17 @@ export default function App() {
                         </div>
 
                         <div className="text-sm font-black text-white uppercase">
-                          {formatTime12h(b.slot.start_time)} - {formatTime12h(b.slot.end_time)}
+                          {formatTime12h(slotStartTimeStr)} - {formatTime12h(slotEndTimeStr || slotStartTimeStr)}
                         </div>
 
                         <div className="text-xs font-bold text-[#22c55e] mt-1">
-                          {formatDateDisplayShort(b.slot.date)}
+                          {formatDateDisplayShort(slotDateStr)}
                         </div>
 
                         <div className="grid grid-cols-3 gap-2 mt-3 pt-3 border-t border-neutral-900/60 text-[10px] text-neutral-400">
                           <div>
                             <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">Player</span>
-                            <span className="font-bold text-neutral-300 truncate block">{b.customer_name}</span>
+                            <span className="font-bold text-neutral-300 truncate block">{b.customer_name || user?.name || 'Player'}</span>
                           </div>
                           <div>
                             <span className="block text-neutral-600 font-bold uppercase text-[8px] tracking-wider">Paid</span>
@@ -4746,6 +4772,13 @@ function AdminApp() {
                           <p className="text-[10px] text-neutral-500 font-bold uppercase mt-1">Date: {formatDateDisplayShort(selectedSlotDetails.date)}</p>
                         </div>
 
+                        {selectedSlotDetails.status === 'booked' && !selectedSlotDetails.booking && (
+                          <div className="pt-3 border-t border-neutral-900 text-xs text-neutral-400">
+                            <span className="text-[9px] text-neutral-500 uppercase font-black block">Reservation Source</span>
+                            <span className="text-neutral-300 font-bold block mt-1">Booked offline or via venue manager.</span>
+                          </div>
+                        )}
+
                         {selectedSlotDetails.status === 'booked' && selectedSlotDetails.booking && (
                           <div className="space-y-3 pt-3 border-t border-neutral-900 text-xs">
                             <div>
@@ -4797,6 +4830,36 @@ function AdminApp() {
                                   </button>
                                 </>
                               )}
+                            </div>
+                          </div>
+                        )}
+
+                        {selectedSlotDetails.status === 'booked' && !selectedSlotDetails.booking && (
+                          <div className="space-y-3 pt-3 border-t border-neutral-900 text-xs">
+                            <div className="p-3 border border-amber-500/30 bg-amber-500/5 space-y-2">
+                              <div className="flex items-center gap-1.5 text-amber-500">
+                                <AlertTriangle className="w-4 h-4 shrink-0" />
+                                <span className="text-[10px] font-black uppercase tracking-wider">Orphaned Booked Slot</span>
+                              </div>
+                              <p className="text-[10px] text-neutral-400">
+                                This slot is marked booked in the database, but has no customer booking attached (e.g. from an abandoned payment or offline status change).
+                              </p>
+                            </div>
+                            <div className="pt-2 flex flex-wrap gap-2">
+                              <button
+                                disabled={actionLoadingId === selectedSlotDetails.id}
+                                onClick={() => toggleBlockSlot(selectedSlotDetails, false)}
+                                className="py-2.5 px-3 bg-[#22c55e] hover:bg-[#1db252] text-black font-extrabold text-[9px] uppercase tracking-wider rounded-none shadow-[2px_2px_0px_#000] cursor-pointer"
+                              >
+                                {actionLoadingId === selectedSlotDetails.id ? 'Processing...' : 'Reset to Available'}
+                              </button>
+                              <button
+                                disabled={actionLoadingId === selectedSlotDetails.id}
+                                onClick={() => toggleBlockSlot(selectedSlotDetails, true)}
+                                className="py-2.5 px-3 bg-neutral-900 hover:bg-neutral-800 text-white font-bold text-[9px] uppercase tracking-wider rounded-none cursor-pointer"
+                              >
+                                {actionLoadingId === selectedSlotDetails.id ? 'Processing...' : 'Mark as Blocked'}
+                              </button>
                             </div>
                           </div>
                         )}

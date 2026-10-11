@@ -471,6 +471,36 @@ export const query = async (text, params = []) => {
         const doc = await firestoreDb.collection('slots').doc(params[0]).get();
         return { rows: doc.exists ? [{ id: doc.id, ...doc.data() }] : [] };
       }
+
+      // 6b. SELECT s.id, s.date, s.start_time FROM slots s WHERE s.status = 'booked' AND s.date >= $1 (Orphaned slots check)
+      if (trimmedText.includes('FROM slots s') && trimmedText.includes("s.status = 'booked'") && trimmedText.includes('s.date >=')) {
+        const targetDate = params[0];
+        const graceTime = params[1] || new Date(Date.now() - 15 * 60 * 1000).toISOString();
+
+        const slotsSnap = await firestoreDb.collection('slots')
+          .where('status', '==', 'booked')
+          .get();
+        const bookingsSnap = await firestoreDb.collection('bookings').get();
+
+        const activeSlotIds = new Set();
+        bookingsSnap.docs.forEach(doc => {
+          const data = doc.data();
+          const isConfirmedOrCompleted = ['confirmed', 'completed'].includes(data.booking_status) && Number(data.advance_paid_amount || 0) > 0;
+          const isRecentPending = data.booking_status === 'pending' && data.created_at && data.created_at >= graceTime;
+          if ((isConfirmedOrCompleted || isRecentPending) && data.slot_id) {
+            activeSlotIds.add(data.slot_id);
+          }
+        });
+
+        const orphanedSlots = [];
+        slotsSnap.docs.forEach(doc => {
+          const data = doc.data();
+          if (data.date >= targetDate && !activeSlotIds.has(doc.id)) {
+            orphanedSlots.push({ id: doc.id, date: data.date, start_time: data.start_time });
+          }
+        });
+        return { rows: orphanedSlots };
+      }
       
       // 7. INSERT INTO bookings (id, slot_id, user_id, created_at, ...)
       if (trimmedText.startsWith('INSERT INTO bookings')) {
@@ -667,11 +697,27 @@ export const query = async (text, params = []) => {
       }
       
       // 11. SELECT b.id, b.slot_id, b.created_at, b.user_id, u.name as customer_name, u.phone as customer_phone, ... WHERE b.user_id = $1
-      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('b.user_id = $1')) {
+      if (trimmedText.includes('FROM bookings') && (trimmedText.includes('b.user_id = $1') || trimmedText.includes('user_id = $1'))) {
         const snap = await firestoreDb.collection('bookings').where('user_id', '==', params[0]).get();
-        let rows = snap.docs.map(d => {
+        let rows = [];
+        for (const d of snap.docs) {
           const data = d.data();
-          return {
+          let slotDate = data.slot?.date;
+          let slotStartTime = data.slot?.start_time;
+          let slotEndTime = data.slot?.end_time;
+          let slotPrice = data.slot?.price;
+          if (!slotDate && data.slot_id) {
+            const sDoc = await firestoreDb.collection('slots').doc(data.slot_id).get();
+            if (sDoc.exists) {
+              const sData = sDoc.data();
+              slotDate = sData.date;
+              slotStartTime = sData.start_time;
+              slotEndTime = sData.end_time;
+              slotPrice = sData.price;
+            }
+          }
+
+          rows.push({
             id: d.id,
             slot_id: data.slot_id,
             user_id: data.user_id,
@@ -687,12 +733,12 @@ export const query = async (text, params = []) => {
             cancelled_at: data.cancelled_at || null,
             refund_amount: data.refund_amount !== undefined ? data.refund_amount : null,
             refund_status: data.refund_status || null,
-            date: data.slot?.date,
-            start_time: data.slot?.start_time,
-            end_time: data.slot?.end_time,
-            price: data.slot?.price
-          };
-        });
+            date: slotDate,
+            start_time: slotStartTime,
+            end_time: slotEndTime,
+            price: slotPrice
+          });
+        }
         // Strictly filter to passes where advance has actually been paid (> 0) and not pending
         rows = rows.filter(b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending' && ['confirmed', 'completed', 'cancelled'].includes(b.booking_status));
         // Sort by date DESC, start_time DESC
@@ -706,42 +752,109 @@ export const query = async (text, params = []) => {
       
       // 11b. UPDATE bookings SET payment_verified = ... WHERE razorpay_order_id = ...
       if (trimmedText.startsWith('UPDATE bookings SET payment_verified =') || trimmedText.startsWith('UPDATE bookings SET payment_verified=')) {
-        // If query has 7 params (meaning it includes cancellation_deadline), order_id is params[6], else params[5]
-        const orderIdParam = params.length >= 7 ? params[6] : params[5];
+        const orderIdParam = params[params.length - 1];
+        if (!orderIdParam) return { rows: [] };
         const snap = await firestoreDb.collection('bookings').where('razorpay_order_id', '==', orderIdParam).get();
         const batch = firestoreDb.batch();
-        snap.docs.forEach(doc => {
+        for (const doc of snap.docs) {
+          const docData = doc.data();
           const updateData = {
-            payment_verified: params[0] === true || params[0] === 1,
-            advance_paid_amount: params[1],
-            balance_amount: params[2],
-            booking_status: params[3],
-            razorpay_payment_id: params[4]
+            payment_verified: true,
+            booking_status: 'confirmed'
           };
-          if (params.length >= 7) {
-            updateData.cancellation_deadline = params[5];
+          
+          if (params.length === 4) {
+            updateData.advance_paid_amount = params[0];
+            updateData.balance_amount = params[1];
+            updateData.razorpay_payment_id = params[2];
+          } else {
+            updateData.payment_verified = params[0] === true || params[0] === 1;
+            updateData.advance_paid_amount = params[1];
+            updateData.balance_amount = params[2];
+            updateData.booking_status = params[3] || 'confirmed';
+            updateData.razorpay_payment_id = params[4];
           }
+
+          if (params.length === 7) {
+            updateData.cancellation_deadline = params[5];
+          } else if (params.length >= 8) {
+            if (params[5]) updateData.customer_name = params[5];
+            if (params[6]) updateData.customer_phone = params[6];
+          }
+
+          // Ensure slot data is attached to the booking document if missing
+          if (!docData.slot && docData.slot_id) {
+            const slotDoc = await firestoreDb.collection('slots').doc(docData.slot_id).get();
+            if (slotDoc.exists) {
+              updateData.slot = slotDoc.data();
+            }
+          }
+
+          // Ensure customer details are attached if missing on docData
+          if ((!docData.customer_name || docData.customer_name === 'Player') && docData.user_id) {
+            const uDoc = await firestoreDb.collection('users').doc(docData.user_id).get();
+            if (uDoc.exists && uDoc.data().name) {
+              if (!updateData.customer_name) updateData.customer_name = uDoc.data().name;
+              if (uDoc.data().phone && !updateData.customer_phone && !docData.customer_phone) {
+                updateData.customer_phone = uDoc.data().phone;
+              }
+            }
+          }
+
           batch.update(doc.ref, updateData);
-        });
+        }
         await batch.commit();
         return { rows: [] };
       }
 
-      // 11c. SELECT b.id, b.slot_id, b.user_id, b.total_amount, b.advance_amount ... WHERE b.razorpay_order_id = $1
-      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('b.razorpay_order_id = $1')) {
+      // 11c. SELECT b.id, b.slot_id, b.user_id, b.total_amount, b.advance_amount ... WHERE razorpay_order_id = $1
+      if (trimmedText.includes('FROM bookings') && trimmedText.includes('razorpay_order_id = $1')) {
         const snap = await firestoreDb.collection('bookings').where('razorpay_order_id', '==', params[0]).get();
         if (snap.size > 0) {
-          const data = snap.docs[0].data();
+          const doc = snap.docs[0];
+          const data = doc.data();
+          let slotDate = data.slot?.date;
+          let slotStartTime = data.slot?.start_time;
+          let slotEndTime = data.slot?.end_time;
+          let slotPrice = data.slot?.price;
+          if (!slotDate && data.slot_id) {
+            const sDoc = await firestoreDb.collection('slots').doc(data.slot_id).get();
+            if (sDoc.exists) {
+              const sData = sDoc.data();
+              slotDate = sData.date;
+              slotStartTime = sData.start_time;
+              slotEndTime = sData.end_time;
+              slotPrice = sData.price;
+            }
+          }
+
+          let custName = data.customer_name;
+          let custPhone = data.customer_phone;
+          if ((!custName || custName === 'Player') && data.user_id) {
+            const uDoc = await firestoreDb.collection('users').doc(data.user_id).get();
+            if (uDoc.exists) {
+              custName = uDoc.data().name || custName || 'Player';
+              custPhone = custPhone || uDoc.data().phone || '';
+            }
+          }
+
           return {
             rows: [{
-              id: snap.docs[0].id,
+              id: doc.id,
               slot_id: data.slot_id,
               user_id: data.user_id,
+              created_at: data.created_at,
               total_amount: data.total_amount,
               advance_amount: data.advance_amount,
-              date: data.slot?.date,
-              start_time: data.slot?.start_time,
-              end_time: data.slot?.end_time
+              advance_paid_amount: data.advance_paid_amount || 0,
+              balance_amount: data.balance_amount,
+              booking_status: data.booking_status,
+              customer_name: custName || 'Player',
+              customer_phone: custPhone || '',
+              date: slotDate,
+              start_time: slotStartTime,
+              end_time: slotEndTime,
+              price: slotPrice
             }]
           };
         }
@@ -749,18 +862,43 @@ export const query = async (text, params = []) => {
       }
 
       // 11d. SELECT b.id, b.slot_id, b.user_id, ... FROM bookings b JOIN slots s ... WHERE b.id = $1
-      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('WHERE b.id = $1')) {
+      if (trimmedText.includes('FROM bookings') && (trimmedText.includes('WHERE b.id = $1') || trimmedText.includes('WHERE id = $1'))) {
         const doc = await firestoreDb.collection('bookings').doc(params[0]).get();
         if (doc.exists) {
           const data = doc.data();
+          let slotDate = data.slot?.date;
+          let slotStartTime = data.slot?.start_time;
+          let slotEndTime = data.slot?.end_time;
+          let slotPrice = data.slot?.price;
+          if (!slotDate && data.slot_id) {
+            const sDoc = await firestoreDb.collection('slots').doc(data.slot_id).get();
+            if (sDoc.exists) {
+              const sData = sDoc.data();
+              slotDate = sData.date;
+              slotStartTime = sData.start_time;
+              slotEndTime = sData.end_time;
+              slotPrice = sData.price;
+            }
+          }
+
+          let custName = data.customer_name;
+          let custPhone = data.customer_phone;
+          if ((!custName || custName === 'Player') && data.user_id) {
+            const uDoc = await firestoreDb.collection('users').doc(data.user_id).get();
+            if (uDoc.exists) {
+              custName = uDoc.data().name || custName || 'Player';
+              custPhone = custPhone || uDoc.data().phone || '';
+            }
+          }
+
           return {
             rows: [{
               id: doc.id,
               slot_id: data.slot_id,
               user_id: data.user_id,
               created_at: data.created_at,
-              customer_name: data.customer_name,
-              customer_phone: data.customer_phone,
+              customer_name: custName || 'Player',
+              customer_phone: custPhone || '',
               total_amount: data.total_amount,
               advance_amount: data.advance_amount,
               advance_paid_amount: data.advance_paid_amount,
@@ -771,10 +909,10 @@ export const query = async (text, params = []) => {
               refund_amount: data.refund_amount,
               refund_status: data.refund_status,
               booking_status: data.booking_status,
-              date: data.slot?.date,
-              start_time: data.slot?.start_time,
-              end_time: data.slot?.end_time,
-              price: data.slot?.price
+              date: slotDate,
+              start_time: slotStartTime,
+              end_time: slotEndTime,
+              price: slotPrice
             }]
           };
         }
@@ -788,6 +926,15 @@ export const query = async (text, params = []) => {
           cancelled_at: params[1],
           refund_amount: params[2],
           refund_status: params[3]
+        });
+        return { rows: [] };
+      }
+
+      // 11ec. UPDATE bookings SET customer_name = $1, customer_phone = $2 WHERE id = $3
+      if (trimmedText.startsWith('UPDATE bookings SET customer_name =') || trimmedText.startsWith('UPDATE bookings SET customer_name=')) {
+        await firestoreDb.collection('bookings').doc(params[2]).update({
+          customer_name: params[0],
+          customer_phone: params[1]
         });
         return { rows: [] };
       }
@@ -833,25 +980,52 @@ export const query = async (text, params = []) => {
       }
 
       // 11i. SELECT bookings join slots join users WHERE s.date = $1 (Today's Bookings)
-      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('s.date = $1')) {
+      if (trimmedText.includes('FROM bookings') && (trimmedText.includes('s.date = $1') || trimmedText.includes('date = $1'))) {
         const snap = await firestoreDb.collection('bookings').get();
         const rows = [];
         for (const doc of snap.docs) {
           const data = doc.data();
+          let slotDate = data.slot?.date;
+          let slotStartTime = data.slot?.start_time;
+          let slotEndTime = data.slot?.end_time;
+          let slotPrice = data.slot?.price;
+
+          // If slot wasn't embedded or was deleted/updated, fetch from slots collection using slot_id
+          if (!slotDate && data.slot_id) {
+            const sDoc = await firestoreDb.collection('slots').doc(data.slot_id).get();
+            if (sDoc.exists) {
+              const sData = sDoc.data();
+              slotDate = sData.date;
+              slotStartTime = sData.start_time;
+              slotEndTime = sData.end_time;
+              slotPrice = sData.price;
+            }
+          }
+
           if (
-            data.slot && 
-            data.slot.date === params[0] &&
+            slotDate === params[0] &&
             Number(data.advance_paid_amount || 0) > 0 &&
             data.booking_status !== 'pending' &&
             ['confirmed', 'completed'].includes(data.booking_status)
           ) {
+            // Self-heal customer details if empty
+            let custName = data.customer_name;
+            let custPhone = data.customer_phone;
+            if ((!custName || custName === 'Player') && data.user_id) {
+              const uDoc = await firestoreDb.collection('users').doc(data.user_id).get();
+              if (uDoc.exists) {
+                custName = uDoc.data().name || custName || 'Player';
+                custPhone = custPhone || uDoc.data().phone || '';
+              }
+            }
+
             rows.push({
               id: doc.id,
               slot_id: data.slot_id,
               user_id: data.user_id,
               created_at: data.created_at,
-              customer_name: data.customer_name,
-              customer_phone: data.customer_phone,
+              customer_name: custName || 'Player',
+              customer_phone: custPhone || '',
               total_amount: data.total_amount,
               advance_amount: data.advance_amount,
               advance_paid_amount: data.advance_paid_amount,
@@ -859,10 +1033,10 @@ export const query = async (text, params = []) => {
               booking_status: data.booking_status,
               cancellation_deadline: data.cancellation_deadline,
               balance_payment_status: data.balance_payment_status || 'pending',
-              date: data.slot.date,
-              start_time: data.slot.start_time,
-              end_time: data.slot.end_time,
-              price: data.slot.price
+              date: slotDate,
+              start_time: slotStartTime,
+              end_time: slotEndTime,
+              price: slotPrice
             });
           }
         }
@@ -871,20 +1045,47 @@ export const query = async (text, params = []) => {
       }
 
       // 11j. SELECT bookings join slots join users WHERE b.balance_payment_status = $1 (Pending Balances)
-      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('b.balance_payment_status = $1')) {
+      if (trimmedText.includes('FROM bookings') && trimmedText.includes('balance_payment_status = $1')) {
         const snap = await firestoreDb.collection('bookings')
           .where('balance_payment_status', '==', params[0])
           .where('booking_status', '==', params[1])
           .get();
-        let rows = snap.docs.map(doc => {
+        let rows = [];
+        for (const doc of snap.docs) {
           const data = doc.data();
-          return {
+          let slotDate = data.slot?.date;
+          let slotStartTime = data.slot?.start_time;
+          let slotEndTime = data.slot?.end_time;
+          let slotPrice = data.slot?.price;
+
+          if (!slotDate && data.slot_id) {
+            const sDoc = await firestoreDb.collection('slots').doc(data.slot_id).get();
+            if (sDoc.exists) {
+              const sData = sDoc.data();
+              slotDate = sData.date;
+              slotStartTime = sData.start_time;
+              slotEndTime = sData.end_time;
+              slotPrice = sData.price;
+            }
+          }
+
+          let custName = data.customer_name;
+          let custPhone = data.customer_phone;
+          if ((!custName || custName === 'Player') && data.user_id) {
+            const uDoc = await firestoreDb.collection('users').doc(data.user_id).get();
+            if (uDoc.exists) {
+              custName = uDoc.data().name || custName || 'Player';
+              custPhone = custPhone || uDoc.data().phone || '';
+            }
+          }
+
+          rows.push({
             id: doc.id,
             slot_id: data.slot_id,
             user_id: data.user_id,
             created_at: data.created_at,
-            customer_name: data.customer_name,
-            customer_phone: data.customer_phone,
+            customer_name: custName || 'Player',
+            customer_phone: custPhone || '',
             total_amount: data.total_amount,
             advance_amount: data.advance_amount,
             advance_paid_amount: data.advance_paid_amount,
@@ -892,12 +1093,12 @@ export const query = async (text, params = []) => {
             booking_status: data.booking_status,
             cancellation_deadline: data.cancellation_deadline,
             balance_payment_status: data.balance_payment_status || 'pending',
-            date: data.slot?.date,
-            start_time: data.slot?.start_time,
-            end_time: data.slot?.end_time,
-            price: data.slot?.price
-          };
-        });
+            date: slotDate,
+            start_time: slotStartTime,
+            end_time: slotEndTime,
+            price: slotPrice
+          });
+        }
         rows = rows.filter(b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending');
         rows.sort((a, b) => {
           const dateComp = (a.date || '').localeCompare(b.date || '');
@@ -908,19 +1109,46 @@ export const query = async (text, params = []) => {
       }
 
       // 11k. SELECT bookings join slots join users WHERE b.booking_status = $1 ORDER BY cancelled_at DESC (Cancellations Log)
-      if (trimmedText.includes('FROM bookings b') && trimmedText.includes('b.booking_status = $1') && trimmedText.includes('ORDER BY b.cancelled_at')) {
+      if (trimmedText.includes('FROM bookings') && trimmedText.includes('booking_status = $1') && trimmedText.includes('ORDER BY b.cancelled_at')) {
         const snap = await firestoreDb.collection('bookings')
           .where('booking_status', '==', params[0])
           .get();
-        let rows = snap.docs.map(doc => {
+        let rows = [];
+        for (const doc of snap.docs) {
           const data = doc.data();
-          return {
+          let slotDate = data.slot?.date;
+          let slotStartTime = data.slot?.start_time;
+          let slotEndTime = data.slot?.end_time;
+          let slotPrice = data.slot?.price;
+
+          if (!slotDate && data.slot_id) {
+            const sDoc = await firestoreDb.collection('slots').doc(data.slot_id).get();
+            if (sDoc.exists) {
+              const sData = sDoc.data();
+              slotDate = sData.date;
+              slotStartTime = sData.start_time;
+              slotEndTime = sData.end_time;
+              slotPrice = sData.price;
+            }
+          }
+
+          let custName = data.customer_name;
+          let custPhone = data.customer_phone;
+          if ((!custName || custName === 'Player') && data.user_id) {
+            const uDoc = await firestoreDb.collection('users').doc(data.user_id).get();
+            if (uDoc.exists) {
+              custName = uDoc.data().name || custName || 'Player';
+              custPhone = custPhone || uDoc.data().phone || '';
+            }
+          }
+
+          rows.push({
             id: doc.id,
             slot_id: data.slot_id,
             user_id: data.user_id,
             created_at: data.created_at,
-            customer_name: data.customer_name,
-            customer_phone: data.customer_phone,
+            customer_name: custName || 'Player',
+            customer_phone: custPhone || '',
             total_amount: data.total_amount,
             advance_amount: data.advance_amount,
             advance_paid_amount: data.advance_paid_amount,
@@ -931,12 +1159,12 @@ export const query = async (text, params = []) => {
             refund_amount: data.refund_amount,
             refund_status: data.refund_status,
             balance_payment_status: data.balance_payment_status || 'pending',
-            date: data.slot?.date,
-            start_time: data.slot?.start_time,
-            end_time: data.slot?.end_time,
-            price: data.slot?.price
-          };
-        });
+            date: slotDate,
+            start_time: slotStartTime,
+            end_time: slotEndTime,
+            price: slotPrice
+          });
+        }
         rows = rows.filter(b => Number(b.advance_paid_amount || 0) > 0);
         rows.sort((a, b) => (b.cancelled_at || '').localeCompare(a.cancelled_at || ''));
         return { rows };
