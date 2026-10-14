@@ -84,7 +84,23 @@ const formatDateDisplayLong = (dateStr) => {
 };
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState('home'); // 'home', 'book', 'passes', 'profile'
+  const getInitialTab = () => {
+    try {
+      const path = window.location.pathname.toLowerCase().replace(/\/$/, '');
+      if (path === '/contact' || path === '/contact-us') return 'contact';
+      if (path === '/book') return 'book';
+      if (path === '/passes') return 'passes';
+      if (path === '/profile') return 'profile';
+      const urlParams = new URLSearchParams(window.location.search);
+      const tabParam = urlParams.get('tab');
+      if (tabParam && ['home', 'book', 'passes', 'profile', 'contact'].includes(tabParam)) {
+        return tabParam;
+      }
+    } catch (_) {}
+    return 'home';
+  };
+
+  const [currentTab, setCurrentTab] = useState(getInitialTab); // 'home', 'book', 'passes', 'profile', 'contact'
   const [profileSub, setProfileSub] = useState(null); // null, 'edit', 'faq', 'settings', 'help', 'cancel-board', 'invite', 'rate'
   const [publicSettings, setPublicSettings] = useState({
     turf_name: 'GOLDEN ARM',
@@ -113,6 +129,37 @@ export default function App() {
       .then(data => setReviewsData(data))
       .catch(err => console.error('Failed to load reviews:', err));
   }, []);
+
+  // Listen for browser navigation (back/forward)
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname.toLowerCase().replace(/\/$/, '');
+      if (path === '/contact' || path === '/contact-us') {
+        setCurrentTab('contact');
+      } else if (path === '/book') {
+        setCurrentTab('book');
+      } else if (path === '/passes') {
+        setCurrentTab('passes');
+      } else if (path === '/profile') {
+        setCurrentTab('profile');
+      } else if (path === '' || path === '/home') {
+        setCurrentTab('home');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Sync document title with current tab
+  useEffect(() => {
+    if (currentTab === 'contact') {
+      document.title = 'Contact Us | Golden Arm Sports Turf Alakode';
+    } else if (currentTab === 'book') {
+      document.title = 'Book Turf Slot | Golden Arm Sports Turf Alakode';
+    } else {
+      document.title = 'Golden Arm | Sports Turf Booking in Alakode';
+    }
+  }, [currentTab]);
 
   // Customer Auth State
   const [user, setUser] = useState(null); // Contains { id, name, phone }
@@ -1445,7 +1492,7 @@ export default function App() {
 
   const rawPath = window.location.pathname.toLowerCase();
   const currentPath = rawPath === '/' ? '/' : rawPath.replace(/\/$/, '');
-  const validPaths = ['/', '/admin', '/book', '/passes', '/profile', '/home'];
+  const validPaths = ['/', '/admin', '/book', '/passes', '/profile', '/home', '/contact', '/contact-us'];
 
   if (currentPath === '/admin') {
     return <AdminApp />;
@@ -1463,8 +1510,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-[#070707] text-white">
-    <div className="relative flex flex-col items-center pb-24 w-full max-w-md mx-auto md:max-w-none md:mx-0 md:pb-0">
+    <div className="min-h-screen w-full bg-[#070707] text-white flex flex-col justify-between">
+    <div className="relative flex flex-col items-center pb-24 w-full max-w-md mx-auto md:max-w-none md:mx-0 md:pb-0 flex-grow">
       
       {/* HEADER SECTION (EXCEPT ON HOME SCREEN) */}
       {currentTab !== 'home' && !profileSub && (
@@ -1474,6 +1521,7 @@ export default function App() {
             {currentTab === 'book' && 'Slots Selection'}
             {currentTab === 'passes' && 'Voucher List'}
             {currentTab === 'profile' && 'User Dashboard'}
+            {currentTab === 'contact' && 'Contact Us'}
           </span>
           <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest">
             {publicSettings.turf_name}
@@ -1808,89 +1856,6 @@ export default function App() {
               </button>
             </div>
           )}
-
-          {/* H. FOOTER SECTION */}
-          <footer className="w-full bg-neutral-950 border-t border-neutral-900 py-10 px-6 md:px-16 pb-24">
-            <div className="md:max-w-7xl md:mx-auto grid grid-cols-1 md:grid-cols-4 gap-8">
-              
-              <div className="md:col-span-2 space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg font-black text-white tracking-wider uppercase">GOLDEN ARM</span>
-                  <span className="bg-[#22c55e]/20 text-[#22c55e] border border-[#22c55e]/40 px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest">
-                    Sports Turf
-                  </span>
-                </div>
-                <p className="text-neutral-400 text-[10px] md:text-xs leading-relaxed max-w-md">
-                  Golden Arm Turf Pitch at Sports City Complex, Alakode. Premium 5-a-side artificial sports surface for football &amp; cricket. Open daily with stadium floodlights and instant online booking.
-                </p>
-                <div className="text-[10px] text-neutral-500 font-medium">
-                  <span className="block text-white font-bold">Location &amp; Address:</span>
-                  Sports City Complex, Alakode, Kannur, Kerala – 670571
-                </div>
-              </div>
-
-              <div>
-                <h5 className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-3">
-                  Quick Navigation
-                </h5>
-                <ul className="space-y-2 text-xs font-bold text-neutral-400">
-                  <li>
-                    <button onClick={() => { setCurrentTab('home'); setProfileSub(null); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="hover:text-[#22c55e] transition cursor-pointer">
-                      Home
-                    </button>
-                  </li>
-                  <li>
-                    <button onClick={() => { setCurrentTab('book'); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="hover:text-[#22c55e] transition cursor-pointer">
-                      Book a Slot
-                    </button>
-                  </li>
-                  <li>
-                    <button onClick={() => setActivePolicyModal('about')} className="hover:text-[#22c55e] transition cursor-pointer">
-                      About Us
-                    </button>
-                  </li>
-                  <li>
-                    <button onClick={() => setActivePolicyModal('contact')} className="hover:text-[#22c55e] transition cursor-pointer">
-                      Contact Us
-                    </button>
-                  </li>
-                </ul>
-              </div>
-
-              <div>
-                <h5 className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-3">
-                  Legal &amp; Policies
-                </h5>
-                <ul className="space-y-2 text-xs font-bold text-neutral-400">
-                  <li>
-                    <button onClick={() => setActivePolicyModal('terms')} className="hover:text-[#22c55e] transition cursor-pointer">
-                      Terms &amp; Conditions
-                    </button>
-                  </li>
-                  <li>
-                    <button onClick={() => setActivePolicyModal('privacy')} className="hover:text-[#22c55e] transition cursor-pointer">
-                      Privacy Policy
-                    </button>
-                  </li>
-                  <li>
-                    <button onClick={() => setActivePolicyModal('cancellation')} className="hover:text-[#22c55e] transition cursor-pointer">
-                      Cancellation &amp; Refund Policy
-                    </button>
-                  </li>
-                </ul>
-              </div>
-
-            </div>
-
-            <div className="md:max-w-7xl md:mx-auto border-t border-neutral-900 mt-8 pt-6 flex flex-col md:flex-row justify-between items-center text-[10px] text-neutral-600 font-bold gap-2">
-              <div>
-                &copy; {new Date().getFullYear()} GOLDEN ARM. All rights reserved. NIC 93110 – Operation of sports facilities.
-              </div>
-              <div className="text-neutral-500">
-                Sports City Complex, Alakode, Kannur, Kerala – 670571
-              </div>
-            </div>
-          </footer>
 
         </main>
       )}
@@ -3652,6 +3617,320 @@ export default function App() {
         </main>
       )}
 
+      {/* 5. DEDICATED CONTACT US PAGE */}
+      {currentTab === 'contact' && (
+        <main className="flex-1 w-full flex flex-col px-6 max-w-4xl mx-auto py-6 animate-in fade-in duration-200">
+          {/* Breadcrumb / Back Navigation */}
+          <div className="flex items-center justify-between mb-6">
+            <button
+              onClick={() => {
+                setCurrentTab('home');
+                window.history.pushState({}, '', '/');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="text-xs font-bold uppercase tracking-wider text-neutral-400 hover:text-white flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <ArrowLeft className="w-4 h-4" /> Back to Home
+            </button>
+            <span className="text-[10px] font-mono text-[#22c55e] border border-[#22c55e]/30 bg-[#22c55e]/10 px-2.5 py-1 uppercase tracking-widest font-bold">
+              Official Contact
+            </span>
+          </div>
+
+          {/* Heading */}
+          <div className="mb-8">
+            <span className="text-xs font-bold uppercase tracking-widest text-[#22c55e] block mb-1">
+              Customer Support &amp; Facility Inquiries
+            </span>
+            <h1 className="text-2xl md:text-3xl font-black text-white uppercase tracking-tight">
+              Contact Us
+            </h1>
+            <p className="text-xs text-neutral-400 mt-2 max-w-2xl leading-relaxed">
+              Have questions regarding slot bookings, tournament scheduling, payment confirmations, or venue policies? Reach out directly to our customer care or visit our sports complex.
+            </p>
+          </div>
+
+          {/* Contact Details Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+            
+            {/* Customer Care Card */}
+            <div className="p-5 bg-neutral-950 border border-neutral-800 space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-none bg-[#22c55e]/10 border border-[#22c55e]/30 flex items-center justify-center text-[#22c55e] shrink-0">
+                  <Phone className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest block">
+                    Customer Care &amp; Support
+                  </span>
+                  <a
+                    href="tel:9605512659"
+                    className="text-lg font-black text-[#22c55e] hover:underline font-mono"
+                  >
+                    9605512659
+                  </a>
+                </div>
+              </div>
+              <p className="text-[11px] text-neutral-400 leading-relaxed pt-1">
+                Direct customer care telephone support for immediate slot assistance, booking confirmations, and inquiries.
+              </p>
+            </div>
+
+            {/* Email Support Card */}
+            <div className="p-5 bg-neutral-950 border border-neutral-800 space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-none bg-[#22c55e]/10 border border-[#22c55e]/30 flex items-center justify-center text-[#22c55e] shrink-0">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest block">
+                    Email Support
+                  </span>
+                  <a
+                    href="mailto:kevinmanu2777@gmail.com"
+                    className="text-sm md:text-base font-bold text-[#22c55e] hover:underline font-mono truncate block"
+                  >
+                    kevinmanu2777@gmail.com
+                  </a>
+                </div>
+              </div>
+              <p className="text-[11px] text-neutral-400 leading-relaxed pt-1">
+                Official email address for customer support, booking vouchers, receipts, and grievance redressal.
+              </p>
+            </div>
+
+            {/* Turf Venue Location Card */}
+            <div className="p-5 bg-neutral-950 border border-neutral-800 space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-none bg-[#22c55e]/10 border border-[#22c55e]/30 flex items-center justify-center text-[#22c55e] shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest block">
+                    Physical Facility &amp; Address
+                  </span>
+                  <h4 className="text-sm font-bold text-white uppercase">
+                    GOLDEN ARM SPORTS TURF
+                  </h4>
+                </div>
+              </div>
+              <p className="text-[11px] text-neutral-400 leading-relaxed">
+                Sports City Complex, Alakode, Kannur, Kerala – 670571
+              </p>
+              <div className="pt-2">
+                <a
+                  href="https://maps.google.com/?q=Sports+City+Complex+Alakode+Kannur"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#22c55e] hover:underline uppercase tracking-wider"
+                >
+                  View Location on Map &rarr;
+                </a>
+              </div>
+            </div>
+
+            {/* Enterprise & Operating Hours Card */}
+            <div className="p-5 bg-neutral-950 border border-neutral-800 space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-none bg-[#22c55e]/10 border border-[#22c55e]/30 flex items-center justify-center text-[#22c55e] shrink-0">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest block">
+                    Operating Schedule
+                  </span>
+                  <h4 className="text-sm font-bold text-white uppercase">
+                    {is24Hours ? '24 Hours / 7 Days a week' : 'Daily Operations'}
+                  </h4>
+                </div>
+              </div>
+              <p className="text-[11px] text-neutral-400 leading-relaxed">
+                {is24Hours ? 'Open 24 hours daily with high-mast floodlights.' : `${formatTime12h(publicSettings.operating_hours_start)} – ${formatTime12h(publicSettings.operating_hours_end)} Daily`}
+              </p>
+              <p className="text-[10px] text-neutral-500 font-mono">
+                NIC Activity: 93110 – Operation of sports facilities
+              </p>
+            </div>
+
+          </div>
+
+          {/* Quick Action Box */}
+          <div className="bg-neutral-950 border border-neutral-800 p-6 flex flex-col sm:flex-row items-center justify-between gap-4 mb-8">
+            <div>
+              <h4 className="text-sm font-bold text-white uppercase">
+                Ready to play at Golden Arm?
+              </h4>
+              <p className="text-[11px] text-neutral-400 mt-1">
+                Check real-time slot availability, advance pricing, and reserve online instantly.
+              </p>
+            </div>
+            <div className="flex gap-3 w-full sm:w-auto">
+              <a
+                href="tel:9605512659"
+                className="flex-1 sm:flex-none px-4 py-2.5 border border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/10 text-xs font-bold uppercase tracking-wider text-center transition"
+              >
+                Call Customer Care
+              </a>
+              <button
+                onClick={() => {
+                  setCurrentTab('book');
+                  window.history.pushState({}, '', '/book');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="flex-1 sm:flex-none px-5 py-2.5 bg-[#22c55e] text-black hover:bg-[#1db252] text-xs font-black uppercase tracking-wider text-center transition cursor-pointer"
+              >
+                Book a Slot &rarr;
+              </button>
+            </div>
+          </div>
+
+        </main>
+      )}
+
+      {/* --- PUBLIC FOOTER (VISIBLE ON ALL PUBLIC PAGES) --- */}
+      <footer className="w-full bg-neutral-950 border-t border-neutral-900 py-10 px-6 md:px-16 pb-28 md:pb-12 mt-auto">
+        <div className="md:max-w-7xl md:mx-auto grid grid-cols-1 md:grid-cols-4 gap-8">
+          
+          <div className="md:col-span-2 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-black text-white tracking-wider uppercase">GOLDEN ARM</span>
+              <span className="bg-[#22c55e]/20 text-[#22c55e] border border-[#22c55e]/40 px-2 py-0.5 text-[8px] font-bold uppercase tracking-widest">
+                Sports Turf
+              </span>
+            </div>
+            <p className="text-neutral-400 text-[10px] md:text-xs leading-relaxed max-w-md">
+              Golden Arm Turf Pitch at Sports City Complex, Alakode. Premium 5-a-side artificial sports surface for football &amp; cricket. Open daily with stadium floodlights and instant online booking.
+            </p>
+            <div className="text-[10px] text-neutral-500 font-medium">
+              <span className="block text-white font-bold">Location &amp; Address:</span>
+              Sports City Complex, Alakode, Kannur, Kerala – 670571
+            </div>
+          </div>
+
+          <div>
+            <h5 className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-3">
+              Quick Navigation
+            </h5>
+            <ul className="space-y-2 text-xs font-bold text-neutral-400">
+              <li>
+                <a 
+                  href="/"
+                  onClick={(e) => { 
+                    e.preventDefault();
+                    setCurrentTab('home'); 
+                    setProfileSub(null); 
+                    window.history.pushState({}, '', '/'); 
+                    window.scrollTo({ top: 0, behavior: 'smooth' }); 
+                  }} 
+                  className="hover:text-[#22c55e] transition cursor-pointer"
+                >
+                  Home
+                </a>
+              </li>
+              <li>
+                <a 
+                  href="/book"
+                  onClick={(e) => { 
+                    e.preventDefault();
+                    setCurrentTab('book'); 
+                    window.history.pushState({}, '', '/book'); 
+                    window.scrollTo({ top: 0, behavior: 'smooth' }); 
+                  }} 
+                  className="hover:text-[#22c55e] transition cursor-pointer"
+                >
+                  Book a Slot
+                </a>
+              </li>
+              <li>
+                <button 
+                  type="button" 
+                  onClick={() => setActivePolicyModal('about')} 
+                  className="hover:text-[#22c55e] transition cursor-pointer"
+                >
+                  About Us
+                </button>
+              </li>
+              <li>
+                <a 
+                  href="/contact"
+                  onClick={(e) => { 
+                    e.preventDefault();
+                    setCurrentTab('contact'); 
+                    window.history.pushState({}, '', '/contact'); 
+                    window.scrollTo({ top: 0, behavior: 'smooth' }); 
+                  }} 
+                  className="hover:text-[#22c55e] transition cursor-pointer"
+                >
+                  Contact Us
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <h5 className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-3">
+              Legal &amp; Policies
+            </h5>
+            <ul className="space-y-2 text-xs font-bold text-neutral-400">
+              <li>
+                <button 
+                  type="button" 
+                  onClick={() => setActivePolicyModal('terms')} 
+                  className="hover:text-[#22c55e] transition cursor-pointer"
+                >
+                  Terms &amp; Conditions
+                </button>
+              </li>
+              <li>
+                <button 
+                  type="button" 
+                  onClick={() => setActivePolicyModal('privacy')} 
+                  className="hover:text-[#22c55e] transition cursor-pointer"
+                >
+                  Privacy Policy
+                </button>
+              </li>
+              <li>
+                <button 
+                  type="button" 
+                  onClick={() => setActivePolicyModal('cancellation')} 
+                  className="hover:text-[#22c55e] transition cursor-pointer"
+                >
+                  Cancellation &amp; Refund Policy
+                </button>
+              </li>
+            </ul>
+          </div>
+
+        </div>
+
+        {/* PAYMENT GATEWAY & REGULATORY VERIFICATION FOOTER TEXT */}
+        <div className="md:max-w-7xl md:mx-auto border-t border-neutral-900 mt-8 pt-6 text-center text-xs text-neutral-400">
+          <p className="font-semibold text-neutral-300">Website Owned by KEVIN MANU</p>
+          <p className="mt-1">
+            Email:{' '}
+            <a href="mailto:kevinmanu2777@gmail.com" className="text-[#22c55e] hover:underline font-mono">
+              kevinmanu2777@gmail.com
+            </a>
+          </p>
+          <p className="mt-1">
+            Customer Care:{' '}
+            <a href="tel:9605512659" className="text-[#22c55e] hover:underline font-mono">
+              9605512659
+            </a>
+          </p>
+        </div>
+
+        <div className="md:max-w-7xl md:mx-auto border-t border-neutral-900 mt-6 pt-4 flex flex-col md:flex-row justify-between items-center text-[10px] text-neutral-600 font-bold gap-2">
+          <div>
+            &copy; {new Date().getFullYear()} GOLDEN ARM. All rights reserved. NIC 93110 – Operation of sports facilities.
+          </div>
+          <div className="text-neutral-500">
+            Sports City Complex, Alakode, Kannur, Kerala – 670571
+          </div>
+        </div>
+      </footer>
+
       {/* --- FIXED BOTTOM NAVIGATION BAR --- */}
       <div className="fixed bottom-0 left-0 right-0 z-40 flex justify-center pb-2 pointer-events-none">
         <div className="pointer-events-auto">
@@ -3792,9 +4071,26 @@ export default function App() {
                     <p><strong className="text-neutral-400">Address:</strong> Sports City Complex, Alakode, Kannur, Kerala – 670571</p>
                     <p><strong className="text-neutral-400">Operating Hours:</strong> {is24Hours ? '24 Hours / 7 Days a week' : `${formatTime12h(publicSettings.operating_hours_start)} – ${formatTime12h(publicSettings.operating_hours_end)} Daily`}</p>
                     <p><strong className="text-neutral-400">Service:</strong> Sports Turf Slot Reservation</p>
+                    <p><strong className="text-neutral-400">Customer Care:</strong> <a href="tel:9605512659" className="text-[#22c55e] font-mono hover:underline">9605512659</a></p>
+                    <p><strong className="text-neutral-400">Email:</strong> <a href="mailto:kevinmanu2777@gmail.com" className="text-[#22c55e] font-mono hover:underline">kevinmanu2777@gmail.com</a></p>
+                    <p className="text-[11px] text-neutral-400 pt-2 border-t border-neutral-800">Website Owned by KEVIN MANU</p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActivePolicyModal(null);
+                        setCurrentTab('contact');
+                        window.history.pushState({}, '', '/contact');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="px-4 py-2 border border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/10 text-xs font-bold uppercase tracking-wider text-center transition cursor-pointer"
+                    >
+                      Open Dedicated Contact Page &rarr;
+                    </button>
                   </div>
                   <p className="text-[11px] text-neutral-400">
-                    For slot availability, group bookings, or venue inquiries, please visit our venue or book directly online via our slot reservation system.
+                    For slot availability, group bookings, or venue inquiries, please visit our venue, call customer care, or book directly online via our slot reservation system.
                   </p>
                 </>
               )}

@@ -205,12 +205,25 @@ export default function NotFound({ onNavigate }) {
           </button>
           <span className="text-neutral-700">•</span>
           <a 
-            href="tel:+919876543210" 
+            href="tel:9605512659" 
             className="hover:text-[#22c55e] transition-colors flex items-center gap-1"
           >
             <Phone className="w-3.5 h-3.5" />
             Call Support
           </a>
+          <span className="text-neutral-700">•</span>
+          <button 
+            onClick={() => {
+              if (onNavigate) {
+                onNavigate('contact');
+              } else {
+                window.location.href = '/contact';
+              }
+            }} 
+            className="hover:text-[#22c55e] transition-colors flex items-center gap-1 cursor-pointer"
+          >
+            Contact Us
+          </button>
           <span className="text-neutral-700">•</span>
           <button 
             onClick={() => window.location.href = '/admin'} 
@@ -222,8 +235,23 @@ export default function NotFound({ onNavigate }) {
       </main>
 
       {/* Footer */}
-      <footer className="w-full max-w-4xl px-6 py-4 text-center text-[10px] text-neutral-600 border-t border-neutral-900/60 z-10">
-        © {new Date().getFullYear()} Golden Arm Sports Turf Alakode. All Rights Reserved.
+      <footer className="w-full max-w-4xl px-6 py-6 text-center text-xs text-neutral-400 border-t border-neutral-900/60 z-10 space-y-1">
+        <p className="font-semibold text-neutral-300">Website Owned by KEVIN MANU</p>
+        <p>
+          Email:{' '}
+          <a href="mailto:kevinmanu2777@gmail.com" className="text-[#22c55e] hover:underline font-mono">
+            kevinmanu2777@gmail.com
+          </a>
+        </p>
+        <p>
+          Customer Care:{' '}
+          <a href="tel:9605512659" className="text-[#22c55e] hover:underline font-mono">
+            9605512659
+          </a>
+        </p>
+        <div className="pt-2 text-[10px] text-neutral-600">
+          © {new Date().getFullYear()} Golden Arm Sports Turf Alakode. All Rights Reserved.
+        </div>
       </footer>
     </div>
   );
