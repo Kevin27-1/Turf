@@ -34,11 +34,32 @@ async function createCashfreeOrder({ orderId, orderAmount, customerId, customerN
 
   // Cashfree production requires a valid HTTPS return_url
   let baseUrl = origin || process.env.FRONTEND_URL;
-  if (!baseUrl || (!baseUrl.startsWith('https://') && !baseUrl.startsWith('http://localhost'))) {
-    baseUrl = 'https://goldenarm.in';
+  if (!isCashfreeTest) {
+    if (!baseUrl || !baseUrl.startsWith('https://')) {
+      baseUrl = (process.env.FRONTEND_URL && process.env.FRONTEND_URL.startsWith('https://'))
+        ? process.env.FRONTEND_URL
+        : 'https://goldenarm.in';
+    }
+  } else {
+    if (!baseUrl || (!baseUrl.startsWith('https://') && !baseUrl.startsWith('http://localhost') && !baseUrl.startsWith('http://127.0.0.1'))) {
+      baseUrl = 'http://localhost:5173';
+    }
   }
+
+  const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+  const returnUrl = `${cleanBaseUrl}/?order_id=${orderId}`;
+
   // Explicit order expiry time matching the 10-minute slot hold window
   const holdExpiryIso = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+  const orderMeta = {
+    return_url: returnUrl
+  };
+
+  const notifyBase = process.env.BACKEND_URL || (cleanBaseUrl.startsWith('https://') ? cleanBaseUrl : null);
+  if (notifyBase && (notifyBase.startsWith('https://') || isCashfreeTest)) {
+    orderMeta.notify_url = `${notifyBase.replace(/\/$/, '')}/api/webhooks/cashfree`;
+  }
 
   const payload = {
     order_id: orderId,
@@ -51,10 +72,7 @@ async function createCashfreeOrder({ orderId, orderAmount, customerId, customerN
       customer_email: customerEmail || 'player@goldenarm.in',
       customer_phone: sanitizedPhone
     },
-    order_meta: {
-      return_url: returnUrl,
-      notify_url: `${(process.env.BACKEND_URL || baseUrl).replace(/\/$/, '')}/api/webhooks/cashfree`
-    },
+    order_meta: orderMeta,
     order_tags: {
       slot_id: String(slotId || ''),
       user_id: String(customerId || ''),
