@@ -246,6 +246,8 @@ export default function App() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [activePolicyModal, setActivePolicyModal] = useState(null); // null | 'about' | 'contact' | 'terms' | 'privacy' | 'cancellation'
   const hasVerifiedRedirectRef = useRef(false);
+  const slotsContainerRef = useRef(null);
+  const lastAutoScrolledDateRef = useRef(null);
 
   const galleryImages = [
     { src: '/turf_real_day.webp', caption: 'Golden Arm Turf Pitch View (Day)' },
@@ -366,6 +368,75 @@ export default function App() {
       fetchSlots(selectedDate);
     }
   }, [selectedDate, currentTab]);
+
+  // Auto-scroll expired slots up so available slots land directly in view
+  useEffect(() => {
+    if (currentTab !== 'book') {
+      lastAutoScrolledDateRef.current = null;
+      return;
+    }
+
+    if (loading || !slots || slots.length === 0) return;
+
+    // Prevent repeated re-scrolling if already aligned for this date
+    if (lastAutoScrolledDateRef.current === selectedDate) return;
+
+    // Find the first available upcoming slot, or fallback to first upcoming slot
+    const targetSlot = slots.find(s => {
+      const sDate = s.date || selectedDate;
+      const isPast = sDate < todayIST || (sDate === todayIST && s.start_time <= currentTimeIST);
+      const isBooked = s.status === 'booked' || s.status === 'blocked';
+      return !isPast && !isBooked && s.status === 'available';
+    }) || slots.find(s => {
+      const sDate = s.date || selectedDate;
+      const isPast = sDate < todayIST || (sDate === todayIST && s.start_time <= currentTimeIST);
+      return !isPast;
+    });
+
+    const firstSlot = slots[0];
+    const firstSlotDate = firstSlot?.date || selectedDate;
+    const hasExpiredSlots = firstSlotDate < todayIST || (firstSlotDate === todayIST && firstSlot?.start_time <= currentTimeIST);
+
+    // If no slots are expired (e.g. tomorrow or future date), reset scroll position to top
+    if (!hasExpiredSlots) {
+      if (slotsContainerRef.current) {
+        slotsContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      lastAutoScrolledDateRef.current = selectedDate;
+      return;
+    }
+
+    if (!targetSlot) {
+      lastAutoScrolledDateRef.current = selectedDate;
+      return;
+    }
+
+    lastAutoScrolledDateRef.current = selectedDate;
+
+    // Give DOM time to finish render and layout
+    const timer = setTimeout(() => {
+      const el = document.getElementById(targetSlot.id);
+      const container = slotsContainerRef.current;
+      if (el && container) {
+        const containerRect = container.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        // Calculate offset so targetSlot is aligned at the top of the visible container
+        const targetScrollTop = elRect.top - containerRect.top + container.scrollTop;
+
+        container.scrollTo({
+          top: Math.max(0, targetScrollTop - 4),
+          behavior: 'smooth'
+        });
+
+        // Ensure booking section is cleanly in view on mobile
+        if (window.scrollY > 200) {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [slots, loading, currentTab, selectedDate, todayIST, currentTimeIST]);
 
   // Fetch Today's Live Availability Teaser whenever Home tab is active
   useEffect(() => {
@@ -1487,6 +1558,14 @@ export default function App() {
   const currentTimeIST = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false }).slice(0, 5);
   const todayStr = todayIST;
 
+  // Identify first upcoming available slot for highlighting and landing
+  const firstAvailableSlot = slots.find(s => {
+    const sDate = s.date || selectedDate;
+    const isPast = sDate < todayIST || (sDate === todayIST && s.start_time <= currentTimeIST);
+    return s.status === 'available' && !isPast;
+  });
+  const firstAvailableSlotId = firstAvailableSlot?.id;
+
   const stats = getStats();
 
   const rawPath = window.location.pathname.toLowerCase();
@@ -1861,7 +1940,7 @@ export default function App() {
 
       {/* 2. BOOK TAB */}
       {currentTab === 'book' && (
-        <main className="flex-1 w-full flex flex-col px-6">
+        <main id="booking-section-container" className="flex-1 w-full flex flex-col px-6">
           {/* Confirmed Booking Success Modal Overlay in Booking Section */}
           {confirmedBooking && (
             <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -2027,7 +2106,10 @@ export default function App() {
             )}
 
             {!loading && !error && slots.length > 0 && (
-              <div className="grid grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto pr-1 no-scrollbar pb-6">
+              <div 
+                ref={slotsContainerRef}
+                className="grid grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto pr-1 no-scrollbar pb-6 scroll-smooth"
+              >
                 {slots.map((slot) => {
                   const slotDate = slot.date || selectedDate;
                   const isBooked = slot.status === 'booked' || slot.status === 'blocked';
@@ -2035,6 +2117,7 @@ export default function App() {
                   const isHeldByMe = slot.status === 'held' && slot.held_by_user_id === user?.id;
                   const isPast = slotDate < todayIST || (slotDate === todayIST && slot.start_time <= currentTimeIST);
                   const isDisabled = isBooked || isHeldByOthers || isPast;
+                  const isFirstAvailable = firstAvailableSlotId === slot.id;
 
                   return (
                     <button
@@ -2047,7 +2130,9 @@ export default function App() {
                           ? 'bg-neutral-950 border-neutral-900 text-neutral-600 cursor-not-allowed select-none opacity-60'
                           : isHeldByMe
                             ? 'bg-neutral-900/60 border-[#22c55e] hover:border-[#22c55e] active:scale-[0.97]'
-                            : 'bg-neutral-900/40 border-neutral-800 hover:border-[#22c55e] active:scale-[0.97] hover:bg-[#22c55e]/[0.02]'
+                            : isFirstAvailable
+                              ? 'bg-neutral-900/50 border-[#22c55e]/60 hover:border-[#22c55e] active:scale-[0.97] ring-1 ring-[#22c55e]/30'
+                              : 'bg-neutral-900/40 border-neutral-800 hover:border-[#22c55e] active:scale-[0.97] hover:bg-[#22c55e]/[0.02]'
                       }`}
                     >
                       <span className={`text-[9px] font-bold px-2 py-0.5 self-start mb-3 border ${
@@ -2087,6 +2172,11 @@ export default function App() {
                       {isHeldByMe && !isPast && (
                         <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-[#22c55e] animate-pulse">
                           Your Hold
+                        </span>
+                      )}
+                      {isFirstAvailable && !isDisabled && !isHeldByMe && (
+                        <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-[#22c55e] border border-[#22c55e]/30 px-1 bg-[#22c55e]/10">
+                          Available
                         </span>
                       )}
                     </button>
