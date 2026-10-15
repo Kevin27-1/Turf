@@ -255,6 +255,10 @@ export default function App() {
     { src: '/turf_grass.webp', caption: 'PREMIUM SYNTHETIC TURF' }
   ];
 
+  const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const currentTimeIST = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false }).slice(0, 5);
+  const todayStr = todayIST;
+
   // Restore session from localStorage on Mount
   useEffect(() => {
     const initializeAuth = async () => {
@@ -1554,9 +1558,6 @@ export default function App() {
     }, 200);
   };
 
-  const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-  const currentTimeIST = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false }).slice(0, 5);
-  const todayStr = todayIST;
 
   // Identify first upcoming available slot for highlighting and landing
   const firstAvailableSlot = slots.find(s => {
