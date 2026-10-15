@@ -49,9 +49,6 @@ async function createCashfreeOrder({ orderId, orderAmount, customerId, customerN
   const cleanBaseUrl = baseUrl.replace(/\/$/, '');
   const returnUrl = `${cleanBaseUrl}/?order_id=${orderId}`;
 
-  // Explicit order expiry time matching the 10-minute slot hold window
-  const holdExpiryIso = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
   const orderMeta = {
     return_url: returnUrl
   };
@@ -65,7 +62,6 @@ async function createCashfreeOrder({ orderId, orderAmount, customerId, customerN
     order_id: orderId,
     order_amount: Number(orderAmount),
     order_currency: 'INR',
-    order_expiry_time: holdExpiryIso,
     customer_details: {
       customer_id: sanitizedCustomerId,
       customer_name: customerName || 'Golden Arm Player',
