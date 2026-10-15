@@ -36,7 +36,13 @@ export async function ensureSlotsForDate(dateStr) {
     }
 
     const startTotalMinutes = startHour * 60 + startMin;
-    const endTotalMinutes = endHour * 60 + endMin;
+    let endTotalMinutes = endHour * 60 + endMin;
+
+    // Handle overnight operating hours (e.g. 18:00 to 02:00)
+    if (endTotalMinutes <= startTotalMinutes && !is24Hours) {
+      endTotalMinutes += 24 * 60; // Extends past midnight
+    }
+
     const duration = settings.slot_duration_minutes || 60;
     const priceDay = settings.price_per_slot_day ?? settings.price_per_slot ?? 1200;
     const priceNight = settings.price_per_slot_night ?? settings.price_per_slot ?? 1500;
@@ -53,18 +59,39 @@ export async function ensureSlotsForDate(dateStr) {
       }
     }
 
+    // Collect existing non-available intervals (booked, held, blocked) to prevent duration change collisions
+    const lockedIntervals = existingSlots
+      .filter(r => r.status && r.status !== 'available')
+      .map(r => {
+        const [sh, sm] = (r.start_time || '00:00').split(':').map(Number);
+        const [eh, em] = (r.end_time || '00:00').split(':').map(Number);
+        let sMin = sh * 60 + sm;
+        let eMin = eh * 60 + em;
+        if (eMin <= sMin) eMin += 24 * 60;
+        return { start: sMin, end: eMin, status: r.status, startTime: r.start_time, endTime: r.end_time };
+      });
+
     let addedCount = 0;
     for (let min = startTotalMinutes; min + duration <= endTotalMinutes; min += duration) {
       const sh = Math.floor(min / 60) % 24;
       const sm = min % 60;
-      const eh = Math.floor((min + duration) / 60);
+      const ehTotal = Math.floor((min + duration) / 60);
+      const eh = ehTotal % 24;
       const em = (min + duration) % 60;
 
       const start_time = `${String(sh).padStart(2, '0')}:${String(sm).padStart(2, '0')}`;
-      const end_h_display = eh === 24 ? '00' : String(eh % 24).padStart(2, '0');
+      const end_h_display = ehTotal === 24 && is24Hours ? '00' : String(eh).padStart(2, '0');
       const end_time = `${end_h_display}:${String(em).padStart(2, '0')}`;
 
       if (existingStartTimes.has(start_time)) {
+        continue;
+      }
+
+      // Mathematical interval collision check: startA < endB && endA > startB
+      const candidateEnd = min + duration;
+      const colliding = lockedIntervals.find(locked => min < locked.end && candidateEnd > locked.start);
+      if (colliding) {
+        console.warn(`[SLOT COLLISION AVOIDED] Skipping slot ${dateStr} ${start_time}-${end_time} because it collides with existing ${colliding.status} slot (${colliding.startTime}-${colliding.endTime}).`);
         continue;
       }
 
@@ -72,7 +99,7 @@ export async function ensureSlotsForDate(dateStr) {
       const slotId = crypto.randomUUID();
 
       await query(
-        'INSERT INTO slots (id, date, start_time, end_time, status, price) VALUES ($1, $2, $3, $4, $5, $6)',
+        'INSERT INTO slots (id, date, start_time, end_time, status, price) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (date, start_time) DO NOTHING',
         [slotId, dateStr, start_time, end_time, 'available', slotPrice]
       );
       addedCount++;

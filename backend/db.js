@@ -287,6 +287,9 @@ function initializeSqliteTables() {
         SET operating_hours_start = '00:00', operating_hours_end = '24:00' 
         WHERE operating_hours_start = '06:00' AND operating_hours_end = '23:00'
       `);
+      sqliteDb.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_slot_date_start ON slots(date, start_time)", () => {});
+      sqliteDb.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_single_confirmed_booking_per_slot ON bookings (slot_id) WHERE booking_status IN ('confirmed', 'completed', 'no_show')", () => {});
+      sqliteDb.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_gateway_order_id ON bookings (razorpay_order_id) WHERE razorpay_order_id IS NOT NULL", () => {});
     }
   });
 }
@@ -365,6 +368,9 @@ async function initializePostgresTables() {
       ) VALUES (1, 'GOLDEN ARM', '00:00', '24:00', 60, 1200, 1200, 1500, 40, 4, 'Football, Cricket')
       ON CONFLICT (id) DO NOTHING
     `);
+    await pgPool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_slot_date_start ON slots(date, start_time)");
+    await pgPool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_single_confirmed_booking_per_slot ON bookings (slot_id) WHERE booking_status IN ('confirmed', 'completed', 'no_show')");
+    await pgPool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_bookings_gateway_order_id ON bookings (razorpay_order_id) WHERE razorpay_order_id IS NOT NULL");
   } catch (err) {
     console.error('Error initializing PostgreSQL tables:', err.message);
   }
@@ -485,7 +491,7 @@ export const query = async (text, params = []) => {
         const activeSlotIds = new Set();
         bookingsSnap.docs.forEach(doc => {
           const data = doc.data();
-          const isConfirmedOrCompleted = ['confirmed', 'completed'].includes(data.booking_status) && Number(data.advance_paid_amount || 0) > 0;
+          const isConfirmedOrCompleted = ['confirmed', 'completed', 'no_show'].includes(data.booking_status) && Number(data.advance_paid_amount || 0) > 0;
           const isRecentPending = data.booking_status === 'pending' && data.created_at && data.created_at >= graceTime;
           if ((isConfirmedOrCompleted || isRecentPending) && data.slot_id) {
             activeSlotIds.add(data.slot_id);
@@ -740,7 +746,7 @@ export const query = async (text, params = []) => {
           });
         }
         // Strictly filter to passes where advance has actually been paid (> 0) and not pending
-        rows = rows.filter(b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending' && ['confirmed', 'completed', 'cancelled'].includes(b.booking_status));
+        rows = rows.filter(b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending' && ['confirmed', 'completed', 'no_show', 'cancelled'].includes(b.booking_status));
         // Sort by date DESC, start_time DESC
         rows.sort((a, b) => {
           const dateComp = (b.date || '').localeCompare(a.date || '');
@@ -1006,7 +1012,7 @@ export const query = async (text, params = []) => {
             slotDate === params[0] &&
             Number(data.advance_paid_amount || 0) > 0 &&
             data.booking_status !== 'pending' &&
-            ['confirmed', 'completed'].includes(data.booking_status)
+            ['confirmed', 'completed', 'no_show'].includes(data.booking_status)
           ) {
             // Self-heal customer details if empty
             let custName = data.customer_name;
@@ -1283,3 +1289,37 @@ export const getDbDiagnostics = () => ({
   dbInitError,
   hasDbUrl: !!databaseUrl
 });
+
+// Production transaction wrapper pinning clients in PostgreSQL
+export const withTransaction = async (callback) => {
+  if (isFirestore) {
+    return firestoreDb.runTransaction(async (transaction) => {
+      return callback(query);
+    });
+  } else if (isPostgres) {
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+      const txQuery = async (text, params = []) => client.query(text, params);
+      const result = await callback(txQuery);
+      await client.query('COMMIT');
+      return result;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } else {
+    // SQLite
+    try {
+      await query('BEGIN');
+      const result = await callback(query);
+      await query('COMMIT');
+      return result;
+    } catch (err) {
+      try { await query('ROLLBACK'); } catch (rb) {}
+      throw err;
+    }
+  }
+};

@@ -59,7 +59,7 @@ const formatDateDisplayShort = (dateStr) => {
   const year = parseInt(parts[0], 10);
   const month = parseInt(parts[1], 10) - 1;
   const day = parseInt(parts[2], 10);
-  const d = new Date(year, month, day);
+  const d = new Date(year, month, day, 12, 0, 0); // midday local date prevents UTC midnight off-by-one shifts
   return d.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -74,7 +74,7 @@ const formatDateDisplayLong = (dateStr) => {
   const year = parseInt(parts[0], 10);
   const month = parseInt(parts[1], 10) - 1;
   const day = parseInt(parts[2], 10);
-  const d = new Date(year, month, day);
+  const d = new Date(year, month, day, 12, 0, 0); // midday local date prevents UTC midnight off-by-one shifts
   return d.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
@@ -1421,10 +1421,9 @@ export default function App() {
   const getStats = () => {
     const validBookings = myBookings.filter(b => Number(b.advance_paid_amount || 0) > 0 && b.booking_status !== 'pending');
     const total = validBookings.length;
-    const todayStr = toLocalDateString(new Date());
-    const currentHour = new Date().getHours();
-
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     const currentTimeIST = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false }).slice(0, 5);
+
     const upcoming = validBookings.filter(b => {
       const slotDate = b.slot?.date || b.date;
       const slotStartTime = b.slot?.start_time || b.start_time;
@@ -1468,7 +1467,7 @@ export default function App() {
 
   const handleLiveTeaserClick = () => {
     setCurrentTab('book');
-    const todayStr = toLocalDateString(new Date());
+    const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
     if (selectedDate !== todayStr) {
       setSelectedDate(todayStr);
     }
@@ -2242,17 +2241,16 @@ export default function App() {
                     {validPasses.map((b) => {
                     const isCancelled = b.booking_status === 'cancelled';
                     
-                    // Check if upcoming
+                    // Check if upcoming in venue timezone
                     const slotDateStr = b.slot?.date || b.date;
                     const slotStartTimeStr = b.slot?.start_time || b.start_time;
                     const slotEndTimeStr = b.slot?.end_time || b.end_time;
                     if (!slotDateStr || !slotStartTimeStr) return null;
-                    const [year, month, day] = slotDateStr.split('-').map(Number);
-                    const [hour, minute] = slotStartTimeStr.split(':').map(Number);
-                    const slotStartTime = new Date(year, month - 1, day, hour, minute, 0, 0);
-                    const isUpcoming = slotStartTime > new Date();
+                    const todayISTStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+                    const currentISTTimeStr = new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false }).slice(0, 5);
+                    const isUpcoming = slotDateStr > todayISTStr || (slotDateStr === todayISTStr && slotStartTimeStr > currentISTTimeStr);
 
-                    const isPastDeadline = b.cancellation_deadline ? new Date(b.cancellation_deadline) <= new Date() : true;
+                    const isPastDeadline = b.cancellation_deadline ? new Date(b.cancellation_deadline).getTime() <= Date.now() : true;
                     
                     return (
                       <button 
@@ -5690,7 +5688,7 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
                   tickFormatter={(value) => {
                     const [y, m, d] = (value || '').split('-').map(Number);
                     if (!y || !m || !d) return value;
-                    const dateObj = new Date(y, m - 1, d);
+                    const dateObj = new Date(y, m - 1, d, 12, 0, 0);
                     return dateObj.toLocaleDateString("en-US", {
                       month: "short",
                       day: "numeric",
@@ -5703,7 +5701,7 @@ function InteractiveRevenueChart({ rawChartData = [] }) {
                   content={({ active, payload, label }) => {
                     if (active && payload && payload.length) {
                       const [y, m, d] = (label || '').split('-').map(Number);
-                      const formattedDate = (y && m && d) ? new Date(y, m - 1, d).toLocaleDateString("en-US", {
+                      const formattedDate = (y && m && d) ? new Date(y, m - 1, d, 12, 0, 0).toLocaleDateString("en-US", {
                         weekday: "short",
                         month: "short",
                         day: "numeric",

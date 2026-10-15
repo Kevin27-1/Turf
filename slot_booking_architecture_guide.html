@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Engineering Blueprint: Production Slot Booking System Bugs & Architectural Guide</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 16mm 14mm 16mm 14mm;
+      @bottom-right {
+        content: counter(page);
+      }
+    }
+    
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 11pt;
+      line-height: 1.55;
+      color: #1e293b;
+      background-color: #ffffff;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Header & Cover */
+    .header {
+      border-bottom: 3px solid #0f172a;
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+    }
+
+    .badge-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .badge {
+      font-size: 8pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 3px 8px;
+      border-radius: 4px;
+      display: inline-block;
+    }
+
+    .badge-primary { background: #0f172a; color: #f8fafc; }
+    .badge-danger { background: #fee2e2; color: #991b1b; }
+    .badge-warning { background: #fef3c7; color: #92400e; }
+    .badge-success { background: #dcfce7; color: #166534; }
+    .badge-info { background: #e0e7ff; color: #3730a3; }
+
+    h1 {
+      font-size: 22pt;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.2;
+      margin: 0 0 8px 0;
+    }
+
+    .subtitle {
+      font-size: 11pt;
+      color: #64748b;
+      margin: 0 0 14px 0;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 8.5pt;
+    }
+
+    .meta-item strong {
+      display: block;
+      color: #0f172a;
+      font-size: 8pt;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .meta-item span {
+      color: #475569;
+    }
+
+    /* Section Styling */
+    h2 {
+      font-size: 14pt;
+      font-weight: 800;
+      color: #0f172a;
+      border-left: 4px solid #0f172a;
+      padding-left: 10px;
+      margin-top: 28px;
+      margin-bottom: 14px;
+      page-break-after: avoid;
+    }
+
+    h3 {
+      font-size: 11.5pt;
+      font-weight: 700;
+      color: #1e293b;
+      margin-top: 18px;
+      margin-bottom: 8px;
+      page-break-after: avoid;
+    }
+
+    /* Bug Cards */
+    .bug-card {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 14px;
+      margin-bottom: 16px;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .bug-card.critical {
+      border-left: 5px solid #dc2626;
+    }
+
+    .bug-card.high {
+      border-left: 5px solid #ea580c;
+    }
+
+    .bug-card.medium {
+      border-left: 5px solid #eab308;
+    }
+
+    .bug-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+
+    .bug-title {
+      font-size: 11pt;
+      font-weight: 700;
+      color: #0f172a;
+      margin: 0;
+    }
+
+    .field {
+      margin-bottom: 8px;
+    }
+
+    .field-label {
+      font-size: 8.5pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #64748b;
+      margin-bottom: 2px;
+    }
+
+    .field-desc {
+      font-size: 9.5pt;
+      color: #334155;
+      margin: 0;
+    }
+
+    .consequence-box {
+      background: #fff1f2;
+      border-left: 3px solid #f43f5e;
+      padding: 6px 10px;
+      border-radius: 3px;
+      font-size: 9pt;
+      color: #9f1239;
+      margin: 8px 0;
+    }
+
+    /* Code Blocks */
+    pre {
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 8pt;
+      line-height: 1.45;
+      padding: 10px 12px;
+      border-radius: 5px;
+      overflow-x: auto;
+      margin: 8px 0 4px 0;
+      border: 1px solid #1e293b;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 8.5pt;
+      background: #f1f5f9;
+      color: #0f172a;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+
+    pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+    }
+
+    .code-comment { color: #94a3b8; }
+    .code-keyword { color: #38bdf8; font-weight: 600; }
+    .code-string { color: #4ade80; }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 9pt;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    th {
+      background: #0f172a;
+      color: #f8fafc;
+      font-weight: 700;
+      text-align: left;
+      padding: 8px 10px;
+      font-size: 8.5pt;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #e2e8f0;
+      color: #334155;
+    }
+
+    tr:nth-child(even) td {
+      background: #f8fafc;
+    }
+
+    .page-break {
+      page-break-before: always;
+      break-before: page;
+    }
+
+    .intro-box {
+      background: #f8fafc;
+      border-left: 4px solid #3b82f6;
+      padding: 12px 14px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+      font-size: 9.5pt;
+      color: #334155;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="badge-bar">
+      <span class="badge badge-primary">System Architecture</span>
+      <span class="badge badge-danger">High Concurrency</span>
+      <span class="badge badge-success">Production Checklist</span>
+      <span class="badge badge-info">Turf & Facility Booking</span>
+    </div>
+    <h1>Engineering Blueprint: Slot Booking Engine</h1>
+    <div class="subtitle">A Comprehensive Guide to Race Conditions, Expiry Traps, Timezone Edge Cases & Production Bugs</div>
+    <div class="meta-grid">
+      <div class="meta-item">
+        <strong>Domain</strong>
+        <span>Facility & Turf Booking</span>
+      </div>
+      <div class="meta-item">
+        <strong>Criticality</strong>
+        <span>Financial & Inventory Integrity</span>
+      </div>
+      <div class="meta-item">
+        <strong>Concurrency Model</strong>
+        <span>Distributed Atomic State</span>
+      </div>
+      <div class="meta-item">
+        <strong>Target Stack</strong>
+        <span>Node.js / SQL / Webhooks</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="intro-box">
+    <strong>Executive Architectural Summary:</strong><br>
+    A booking slot system seems straightforward at first glance—create time intervals and let users reserve them. In production, however, it represents one of the most volatile system designs in software engineering because it sits at the intersection of <strong>distributed concurrency, payment gateway asynchronous states, physical inventory locks, and international timezones</strong>. Below is the complete catalog of critical bugs that must be guarded against when designing or re-building a slot booking platform.
+  </div>
+
+  <!-- SECTION 1 -->
+  <h2>1. Concurrency & Race Conditions (Double Bookings)</h2>
+
+  <div class="bug-card critical">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 1.1: The "Check-Then-Act" (SELECT then UPDATE) Race Condition</h3>
+      <span class="badge badge-danger">Critical</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Querying availability with <code>SELECT status FROM slots WHERE id = ?</code>, and if available, running <code>UPDATE slots SET status = 'held'</code>.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Catastrophic Consequence:</strong> When two players click the same 7:00 PM slot within the same second, both read <code>'available'</code> simultaneously. Both proceed to pay, resulting in two paying groups arriving at the physical venue at the same time.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Eliminate the read step. Use an <strong>Atomic Conditional Update</strong> that guarantees single-winner execution:</div>
+    </div>
+    <pre><code><span class="code-comment">-- Atomic conditional state transition</span>
+<span class="code-keyword">UPDATE</span> slots 
+<span class="code-keyword">SET</span> status = <span class="code-string">'held'</span>, held_until = $1, held_by_user_id = $2 
+<span class="code-keyword">WHERE</span> id = $3 <span class="code-keyword">AND</span> status = <span class="code-string">'available'</span>;</code></pre>
+    <div class="field-desc" style="font-size: 8.5pt; color: #475569; margin-top: 4px;">
+      Check <code>result.rowCount === 1</code>. If 0 rows were affected, another player acquired the lock milliseconds earlier. Immediately abort and return a <code>409 Conflict</code>.
+    </div>
+  </div>
+
+  <div class="bug-card critical">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 1.2: The Connection Pool "Fake Transaction" Trap</h3>
+      <span class="badge badge-danger">Critical</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Executing <code>await pool.query('BEGIN')</code>, followed by separate <code>pool.query(...)</code> calls, and ending with <code>await pool.query('COMMIT')</code>.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Silent Failure:</strong> In connection pools (such as <code>pg.Pool</code>), each <code>pool.query()</code> fetches an arbitrary connection from the pool and immediately releases it. <code>BEGIN</code> runs on Connection A, the <code>INSERT</code> runs on Connection B (non-transactional), and <code>COMMIT</code> runs on Connection C. <strong>There is zero transaction isolation.</strong>
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Acquire a dedicated, pinned client from the pool for the lifetime of the transaction:</div>
+    </div>
+    <pre><code><span class="code-keyword">const</span> client = <span class="code-keyword">await</span> pool.connect();
+<span class="code-keyword">try</span> {
+  <span class="code-keyword">await</span> client.query(<span class="code-string">'BEGIN'</span>);
+  <span class="code-comment">// Execute atomic slot status change + booking record creation</span>
+  <span class="code-keyword">await</span> client.query(<span class="code-keyword">'COMMIT'</span>);
+} <span class="code-keyword">catch</span> (err) {
+  <span class="code-keyword">await</span> client.query(<span class="code-keyword">'ROLLBACK'</span>);
+  <span class="code-keyword">throw</span> err;
+} <span class="code-keyword">finally</span> {
+  client.release(); <span class="code-comment">// Return connection to pool</span>
+}</code></pre>
+  </div>
+
+  <div class="bug-card high">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 1.3: Missing Database-Level Unique & Partial Constraints</h3>
+      <span class="badge badge-warning">High</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Relying purely on JavaScript application code to prevent duplicate slots or duplicate bookings without database-level schema constraints.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Consequence:</strong> When under high load, unexpected memory limits or race conditions cause duplicate slots or multiple confirmed bookings pointing to the same slot.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Enforce constraints directly on the database engine:</div>
+    </div>
+    <pre><code><span class="code-comment">-- Prevent duplicate slot intervals on the same day</span>
+<span class="code-keyword">ALTER TABLE</span> slots <span class="code-keyword">ADD CONSTRAINT</span> unique_slot_date_start <span class="code-keyword">UNIQUE</span> (date, start_time);
+
+<span class="code-comment">-- Partial Unique Index: only 1 active booking per slot (ignoring cancelled bookings)</span>
+<span class="code-keyword">CREATE UNIQUE INDEX</span> idx_single_confirmed_booking_per_slot 
+<span class="code-keyword">ON</span> bookings (slot_id) 
+<span class="code-keyword">WHERE</span> booking_status <span class="code-keyword">IN</span> (<span class="code-string">'confirmed'</span>, <span class="code-string">'completed'</span>);</code></pre>
+  </div>
+
+  <div class="bug-card medium">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 1.4: Concurrent On-Demand Slot Generation Spikes</h3>
+      <span class="badge badge-warning">Medium</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Two users open an unseeded date simultaneously. Both call <code>ensureSlotsForDate(date)</code>. Both check <code>COUNT(*) == 0</code> and proceed to insert slots.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Consequence:</strong> 48 slots appear on the calendar instead of 24. Users see two 6:00 PM slots and book different instances of the same hour.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Use <code>INSERT ... ON CONFLICT (date, start_time) DO NOTHING</code> or an application-level mutex / Redis distributed lock.</div>
+    </div>
+  </div>
+
+  <!-- SECTION 2 -->
+  <div class="page-break"></div>
+  <h2>2. Payment Gateway vs. Slot Hold Expiry (Inventory Desync)</h2>
+
+  <div class="bug-card critical">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 2.1: The Asymmetric Hold Expiry Window</h3>
+      <span class="badge badge-danger">Critical</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">The backend holds a slot for 10 minutes, but the payment gateway session (Cashfree, Razorpay, Stripe) remains valid for 15 to 30 minutes.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Catastrophic Consequence:</strong> Player A initiates checkout at 12:00. At 12:10, Player A's hold expires and the slot returns to <code>available</code>. Player B holds and pays for the slot at 12:11. At 12:12, Player A completes UPI entry on their open payment tab. Money is debited from Player A, but the slot is already owned by Player B.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Pass explicit order expiration parameters to the payment gateway matching the exact slot hold duration:</div>
+    </div>
+    <pre><code><span class="code-keyword">const</span> holdExpiryIso = <span class="code-keyword">new</span> Date(Date.now() + 10 * 60 * 1000).toISOString();
+<span class="code-keyword">const</span> gatewayOrderPayload = {
+  order_id: orderId,
+  order_amount: advanceAmount,
+  order_expiry_time: holdExpiryIso <span class="code-comment">// Gateway rejects payments after minute 10</span>
+};</code></pre>
+    <div class="field-desc" style="font-size: 8.5pt; color: #475569; margin-top: 4px;">
+      In <code>/verify</code>, if a payment succeeds but the slot was already reassigned, the system must <strong>never overwrite the other player</strong>. It must immediately issue an automated refund API call.
+    </div>
+  </div>
+
+  <div class="bug-card high">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 2.2: Webhook vs. Frontend Redirect Race Condition</h3>
+      <span class="badge badge-warning">High</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Upon successful payment, both the client browser redirect (<code>POST /api/bookings/verify</code>) and the server webhook (<code>POST /api/webhooks</code>) fire concurrently.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Consequence:</strong> Duplicate confirmations, double-counting revenue in analytics, or race conditions attempting to mark the slot booked twice.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Implement idempotency based on the unique gateway order ID:</div>
+    </div>
+    <pre><code><span class="code-comment">-- Atomic conditional state confirmation</span>
+<span class="code-keyword">UPDATE</span> bookings 
+<span class="code-keyword">SET</span> booking_status = <span class="code-string">'confirmed'</span>, payment_verified = <span class="code-keyword">true</span>, advance_paid_amount = $1 
+<span class="code-keyword">WHERE</span> gateway_order_id = $2 <span class="code-keyword">AND</span> booking_status = <span class="code-string">'pending'</span>;</code></pre>
+    <div class="field-desc" style="font-size: 8.5pt; color: #475569; margin-top: 4px;">
+      If <code>rowCount === 0</code>, the other handler already processed the confirmation. Exit cleanly without re-executing business logic.
+    </div>
+  </div>
+
+  <div class="bug-card critical">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 2.3: Unauthenticated / Forged Webhook Attacks</h3>
+      <span class="badge badge-danger">Critical</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Accepting webhook payloads at <code>POST /api/webhooks</code> without validating the gateway's cryptographic signature.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Vulnerability:</strong> Anyone can send a forged POST request with <code>{ order_status: 'PAID' }</code> and book any slot on the turf for ₹0.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Enforce HMAC-SHA256 signature verification on the raw request body before parsing JSON:</div>
+    </div>
+    <pre><code><span class="code-keyword">const</span> signature = req.headers[<span class="code-string">'x-webhook-signature'</span>];
+<span class="code-keyword">const</span> expected = crypto
+  .createHmac(<span class="code-string">'sha256'</span>, process.env.GATEWAY_SECRET)
+  .update(rawBody)
+  .digest(<span class="code-string">'base64'</span>);
+
+<span class="code-keyword">if</span> (signature !== expected) {
+  <span class="code-keyword">return</span> res.status(401).json({ error: <span class="code-string">'Invalid webhook signature'</span> });
+}</code></pre>
+  </div>
+
+  <!-- SECTION 3 -->
+  <div class="page-break"></div>
+  <h2>3. Timezone, Midnight Rollover & Date Traps</h2>
+
+  <div class="bug-card high">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 3.1: The UTC Midnight Off-By-One Calendar Glitch</h3>
+      <span class="badge badge-danger">Critical</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Parsing date strings with <code>new Date("YYYY-MM-DD")</code> in JavaScript.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Subtle Bug:</strong> JavaScript parses ISO date-only strings as <strong>UTC Midnight</strong> (e.g., <code>2026-10-15T00:00:00.000Z</code>). When evaluated on a device or server behind UTC (such as Americas), <code>getDate()</code> evaluates to the <strong>14th</strong> instead of the 15th. Users book slots for yesterday.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Always parse <code>[year, month, day]</code> explicitly and construct midday local date instances:</div>
+    </div>
+    <pre><code><span class="code-keyword">const</span> [y, m, d] = dateStr.split(<span class="code-string">'-'</span>).map(Number);
+<span class="code-keyword">const</span> localMiddayDate = <span class="code-keyword">new</span> Date(y, m - 1, d, 12, 0, 0);
+
+<span class="code-comment">// Deriving today in the venue timezone (e.g. IST)</span>
+<span class="code-keyword">const</span> todayIST = <span class="code-keyword">new</span> Date().toLocaleDateString(<span class="code-string">'en-CA'</span>, { timeZone: <span class="code-string">'Asia/Kolkata'</span> });</code></pre>
+  </div>
+
+  <div class="bug-card high">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 3.2: Overnight & Post-Midnight Operating Hours (18:00 to 02:00)</h3>
+      <span class="badge badge-warning">High</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Generating slots using naive minute increments: <code>for (min = start; min + duration &lt;= end; min += duration)</code>.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Consequence:</strong> When a sports turf operates overnight (e.g., 18:00 to 02:00), <code>start (1080) &gt; end (120)</code>. The loop condition is immediately false and generates <strong>zero slots</strong>.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">If <code>endTotalMinutes &lt;= startTotalMinutes</code>, add 24 hours (1440 minutes) to the end boundary:</div>
+    </div>
+    <pre><code><span class="code-keyword">let</span> endTotalMinutes = endHour * 60 + endMin;
+<span class="code-keyword">if</span> (endTotalMinutes &lt;= startTotalMinutes) {
+  endTotalMinutes += 24 * 60; <span class="code-comment">// Extends past midnight</span>
+}</code></pre>
+  </div>
+
+  <div class="bug-card medium">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 3.3: Booking Past Slots for "Today"</h3>
+      <span class="badge badge-warning">Medium</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Checking only whether <code>slot.date &gt;= today</code> when allowing bookings.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Consequence:</strong> At 7:00 PM today, users can still book the 10:00 AM slot from this morning.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Enforce real-time venue clock verification during the hold transition:</div>
+    </div>
+    <pre><code><span class="code-keyword">const</span> currentTimeVenue = <span class="code-keyword">new</span> Date().toLocaleTimeString(<span class="code-string">'en-GB'</span>, { 
+  timeZone: <span class="code-string">'Asia/Kolkata'</span>, hour12: <span class="code-keyword">false</span> 
+}).slice(0, 5);
+
+<span class="code-keyword">if</span> (slot.date === todayVenue &amp;&amp; slot.start_time &lt;= currentTimeVenue) {
+  <span class="code-keyword">throw new</span> Error(<span class="code-string">'This time slot has already elapsed.'</span>);
+}</code></pre>
+  </div>
+
+  <!-- SECTION 4 -->
+  <div class="page-break"></div>
+  <h2>4. Slot Seeding & Admin Dynamic Configuration</h2>
+
+  <div class="bug-card critical">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 4.1: Slot Duration Change Collisions (60 min to 90 min)</h3>
+      <span class="badge badge-danger">Critical</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Admin updates slot duration from 60 minutes to 90 minutes. Backend deletes unbooked slots and re-seeds.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Catastrophic Overlap:</strong> An existing 60-minute booking exists at 19:00–20:00. The new 90-minute generator seeds slots at 18:00–19:30 and 19:30–21:00. The new <code>19:30–21:00</code> slot directly collides with the booked <code>19:00–20:00</code> slot. Two groups arrive for the turf at 19:30.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Implement mathematical interval overlap checks before creating any new slot:</div>
+    </div>
+    <pre><code><span class="code-comment">-- Slot A overlaps with Slot B if and only if:</span>
+<span class="code-keyword">SELECT</span> 1 <span class="code-keyword">FROM</span> slots 
+<span class="code-keyword">WHERE</span> date = $1 
+  <span class="code-keyword">AND</span> status <span class="code-keyword">IN</span> (<span class="code-string">'booked'</span>, <span class="code-string">'held'</span>)
+  <span class="code-keyword">AND</span> start_time &lt; $newEndTime 
+  <span class="code-keyword">AND</span> end_time &gt; $newStartTime;</code></pre>
+    <div class="field-desc" style="font-size: 8.5pt; color: #475569; margin-top: 4px;">
+      If any overlap exists with existing bookings, the slot generator must skip that interval and flag an admin warning.
+    </div>
+  </div>
+
+  <!-- SECTION 5 & 6 -->
+  <h2>5. Financial Integrity & Rounding Discrepancies</h2>
+
+  <div class="bug-card high">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 5.1: Client-Side Price Tampering</h3>
+      <span class="badge badge-danger">Critical</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Trusting prices or advance amounts passed in the client request body (e.g. <code>req.body.price</code>).</div>
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Never trust client prices. Server must read the authoritative slot price from the DB and recalculate advance/balance amounts.</div>
+    </div>
+  </div>
+
+  <div class="bug-card medium">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 5.2: Advance Percentage Rounding Inconsistencies</h3>
+      <span class="badge badge-warning">Medium</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Computing <code>advance = slotPrice * 0.40</code> and <code>balance = slotPrice * 0.60</code> independently.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Ledger Mismatch:</strong> With odd amounts (e.g. ₹1255 * 0.40 = 502, ₹1255 * 0.60 = 753), independent rounding causes <code>advance + balance !== total</code>.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Always calculate balance strictly by subtraction:</div>
+    </div>
+    <pre><code><span class="code-keyword">const</span> advanceAmount = Math.round((totalPrice * advancePct) / 100);
+<span class="code-keyword">const</span> balanceAmount = totalPrice - advanceAmount; <span class="code-comment">// Guarantees sum === total</span></code></pre>
+  </div>
+
+  <h2>6. Cancellation & Rescheduling Edge Cases</h2>
+
+  <div class="bug-card high">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 6.1: Client-Side Cancellation Window Bypasses</h3>
+      <span class="badge badge-danger">High</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Trap & Fix</div>
+      <div class="field-desc">The UI hides the cancel button 4 hours prior, but the API endpoint lacks verification. Always evaluate the cutoff server-side:</div>
+    </div>
+    <pre><code><span class="code-keyword">const</span> slotStartUtc = <span class="code-keyword">new</span> Date(`${booking.date}T${booking.start_time}:00+05:30`).getTime();
+<span class="code-keyword">const</span> cutoffLimit = slotStartUtc - (cancellationHours * 60 * 60 * 1000);
+<span class="code-keyword">if</span> (Date.now() &gt; cutoffLimit) {
+  <span class="code-keyword">return</span> res.status(400).json({ error: <span class="code-string">'Cancellation deadline has expired.'</span> });
+}</code></pre>
+  </div>
+
+  <div class="bug-card medium">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 6.2: The Ghost Slot on Cancellation</h3>
+      <span class="badge badge-warning">Medium</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Trap & Fix</div>
+      <div class="field-desc">Marking a booking as <code>'cancelled'</code> without atomically releasing the slot back to <code>'available'</code>. Ensure an atomic multi-table transaction updates both records.</div>
+    </div>
+  </div>
+
+  <!-- SECTION 7 & 8 -->
+  <div class="page-break"></div>
+  <h2>7. Serverless & Background Worker Pitfalls</h2>
+
+  <div class="bug-card high">
+    <div class="bug-header">
+      <h3 class="bug-title">Bug 7.1: The Frozen `setInterval` on Serverless / PaaS</h3>
+      <span class="badge badge-warning">High</span>
+    </div>
+    <div class="field">
+      <div class="field-label">The Flawed Pattern</div>
+      <div class="field-desc">Relying on an in-memory <code>setInterval(revertExpiredHolds, 60000)</code> on Vercel, AWS Lambda, or auto-sleeping PaaS containers.</div>
+    </div>
+    <div class="consequence-box">
+      <strong>Silent Failure:</strong> Serverless runtimes pause execution between HTTP requests. Timers do not fire! Expired slots remain locked indefinitely until manual intervention.
+    </div>
+    <div class="field">
+      <div class="field-label">The Production Fix</div>
+      <div class="field-desc">Combine <strong>Lazy Evaluation on Read</strong> with an external scheduled cron:</div>
+    </div>
+    <pre><code><span class="code-comment">// In GET /api/slots: Revert expired holds lazily before querying</span>
+app.get(<span class="code-string">'/api/slots'</span>, <span class="code-keyword">async</span> (req, res) =&gt; {
+  <span class="code-keyword">await</span> revertExpiredHolds(); <span class="code-comment">// Self-healing on every customer request</span>
+  <span class="code-comment">// proceed to return fresh slots</span>
+});</code></pre>
+  </div>
+
+  <h2>8. Master Architecture Production Blueprint</h2>
+  
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Subsystem</th>
+        <th style="width: 38%;">Vulnerability / Common Bug</th>
+        <th style="width: 40%;">Mandatory Production Defense</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Concurrency</strong></td>
+        <td>Two users book the same slot simultaneously.</td>
+        <td>Atomic conditional <code>UPDATE ... WHERE status = 'available'</code> and DB-level unique indexes.</td>
+      </tr>
+      <tr>
+        <td><strong>DB Transactions</strong></td>
+        <td>Broken isolation due to connection pool query execution.</td>
+        <td>Always pin transactions to a dedicated client (<code>await pool.connect()</code>).</td>
+      </tr>
+      <tr>
+        <td><strong>Payment Session</strong></td>
+        <td>User pays after slot hold timeout; slot is already taken.</td>
+        <td>Sync gateway <code>order_expiry_time</code> with slot hold window; auto-refund fallback if taken.</td>
+      </tr>
+      <tr>
+        <td><strong>Webhooks</strong></td>
+        <td>Forged payment success webhooks; duplicate processing.</td>
+        <td>Mandatory HMAC-SHA256 signature verification and order ID idempotency locks.</td>
+      </tr>
+      <tr>
+        <td><strong>Timezones</strong></td>
+        <td>UTC midnight off-by-one shifts; calendar showing wrong day.</td>
+        <td>Midday local constructors <code>[Y, M, D]</code> and strict venue timezone resolution (<code>en-CA</code>).</td>
+      </tr>
+      <tr>
+        <td><strong>Operating Hours</strong></td>
+        <td>Loops failing on cross-midnight schedules (18:00 to 02:00).</td>
+        <td>Modulo 24 calculations (add 1440 min if <code>end &lt; start</code>).</td>
+      </tr>
+      <tr>
+        <td><strong>Admin Changes</strong></td>
+        <td>Changing slot duration from 60m to 90m creates slot collisions.</td>
+        <td>Mathematical interval overlap validation (<code>startA &lt; endB AND endA &gt; startB</code>).</td>
+      </tr>
+      <tr>
+        <td><strong>Cancellations</strong></td>
+        <td>Bypassing 4-hour cancellation rule; orphaned locked slots.</td>
+        <td>Server-side venue clock verification; atomic rollback of slot to <code>available</code>.</td>
+      </tr>
+      <tr>
+        <td><strong>Serverless Holds</strong></td>
+        <td>In-memory timers freezing when container sleeps.</td>
+        <td>Lazy hold expiry check on every slot read + external cron ping.</td>
+      </tr>
+      <tr>
+        <td><strong>Frontend State</strong></td>
+        <td>Stale slot grid; rapid double clicks on checkout button.</td>
+        <td>Disable button on submit with idempotency key; poll or SSE for live slot status.</td>
+      </tr>
+    </tbody>
+  </table>
+
+</body>
+</html>

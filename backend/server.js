@@ -7,7 +7,7 @@ import bcrypt from 'bcryptjs';
 import admin from 'firebase-admin';
 import { initializeApp, getApps } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
-import { query, getDbEngine, getDbDiagnostics } from './db.js';
+import { query, getDbEngine, getDbDiagnostics, withTransaction } from './db.js';
 import { seedSlots, ensureSlotsForDate } from './seed.js';
 import { authenticateUser, authenticateUserOptional } from './auth.js';
 import rateLimit from 'express-rate-limit';
@@ -37,12 +37,14 @@ async function createCashfreeOrder({ orderId, orderAmount, customerId, customerN
   if (!baseUrl || (!baseUrl.startsWith('https://') && !baseUrl.startsWith('http://localhost'))) {
     baseUrl = 'https://goldenarm.in';
   }
-  const returnUrl = `${baseUrl.replace(/\/$/, '')}/?order_id=${orderId}`;
+  // Explicit order expiry time matching the 10-minute slot hold window
+  const holdExpiryIso = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
   const payload = {
     order_id: orderId,
     order_amount: Number(orderAmount),
     order_currency: 'INR',
+    order_expiry_time: holdExpiryIso,
     customer_details: {
       customer_id: sanitizedCustomerId,
       customer_name: customerName || 'Golden Arm Player',
@@ -189,7 +191,8 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
   'http://localhost:3001',
-  'https://goldenarm.in'
+  'https://goldenarm.in',
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.replace(/\/$/, '')] : [])
 ];
 
 app.use(cors({
@@ -210,7 +213,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 
 // Log active database engine on startup
 console.log(`Express server is using database engine: ${getDbEngine()}`);
@@ -624,7 +631,7 @@ async function reconcileOrphanedBookedSlots() {
            SELECT 1 FROM bookings b
            WHERE b.slot_id = s.id
              AND (
-               (b.booking_status IN ('confirmed', 'completed') AND b.advance_paid_amount > 0)
+               (b.booking_status IN ('confirmed', 'completed', 'no_show') AND b.advance_paid_amount > 0)
                OR (b.booking_status = 'pending' AND b.created_at >= $2)
              )
          )`,
@@ -695,7 +702,7 @@ app.get('/api/bookings', authenticateUser, async (req, res) => {
        LEFT JOIN users u ON b.user_id = u.id
        WHERE b.user_id = $1 
          AND b.advance_paid_amount > 0 
-         AND b.booking_status IN ('confirmed', 'completed', 'cancelled')
+         AND b.booking_status IN ('confirmed', 'completed', 'no_show', 'cancelled')
        ORDER BY s.date DESC, s.start_time DESC
        LIMIT 50`,
       [user_id]
@@ -992,24 +999,49 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
       const createdAt = new Date().toISOString();
       const paymentId = cfVerification.paymentId || req.body.payment_id || `cf_${order_id}`;
 
-      await query('BEGIN');
-      await query(
-        `INSERT INTO bookings (
-          id, slot_id, user_id, created_at, 
-          total_amount, advance_amount, advance_paid_amount, balance_amount, 
-          razorpay_order_id, payment_verified, booking_status, razorpay_payment_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-        [bookingId, slotId, targetUserId, createdAt, totalPrice, advancePaid, advancePaid, balance, order_id, true, 'confirmed', paymentId]
-      );
-      await query(
-        "UPDATE bookings SET customer_name = $1, customer_phone = $2 WHERE id = $3",
-        [customerName, customerPhone, bookingId]
-      ).catch(() => {});
-      await query(
-        "UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1",
+      // Check if slot was already taken by another player
+      const slotOwnerCheck = await query(
+        "SELECT id, booking_status FROM bookings WHERE slot_id = $1 AND booking_status IN ('confirmed', 'completed', 'no_show')",
         [slotId]
       );
-      await query('COMMIT');
+      if (slotOwnerCheck.rows.length > 0) {
+        console.warn(`[LATE PAYMENT CONFLICT] Slot ${slotId} is already confirmed for booking ${slotOwnerCheck.rows[0].id}. Initiating refund.`);
+        await query(
+          `INSERT INTO bookings (
+            id, slot_id, user_id, created_at, 
+            total_amount, advance_amount, advance_paid_amount, balance_amount, 
+            razorpay_order_id, payment_verified, booking_status, razorpay_payment_id, refund_status, refund_amount
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          ON CONFLICT (razorpay_order_id) DO NOTHING`,
+          [bookingId, slotId, targetUserId, createdAt, totalPrice, advancePaid, advancePaid, balance, order_id, true, 'slot_conflict', paymentId, 'pending_refund', advancePaid]
+        );
+        return res.status(409).json({
+          error: 'Your payment was successful, but the slot hold expired and the slot was reserved by another player. A full refund has been initiated.',
+          slot_conflict: true,
+          refund_status: 'pending_refund',
+          refund_amount: advancePaid
+        });
+      }
+
+      await withTransaction(async (txQuery) => {
+        await txQuery(
+          `INSERT INTO bookings (
+            id, slot_id, user_id, created_at, 
+            total_amount, advance_amount, advance_paid_amount, balance_amount, 
+            razorpay_order_id, payment_verified, booking_status, razorpay_payment_id
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          ON CONFLICT (razorpay_order_id) DO NOTHING`,
+          [bookingId, slotId, targetUserId, createdAt, totalPrice, advancePaid, advancePaid, balance, order_id, true, 'confirmed', paymentId]
+        );
+        await txQuery(
+          "UPDATE bookings SET customer_name = $1, customer_phone = $2 WHERE id = $3",
+          [customerName, customerPhone, bookingId]
+        ).catch(() => {});
+        await txQuery(
+          "UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1",
+          [slotId]
+        );
+      });
 
       booking = { id: bookingId, slot_id: slotId, user_id: targetUserId, customer_name: customerName, customer_phone: customerPhone };
     } else {
@@ -1021,30 +1053,47 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
         return res.status(403).json({ error: 'Forbidden: You cannot confirm a booking for another user.' });
       }
 
-      // 3. Update database status in a transaction
-      await query('BEGIN');
-
       const advancePaid = booking.advance_amount;
       const balance = booking.total_amount - advancePaid;
       const paymentId = cfVerification.paymentId || req.body.payment_id || req.body.cf_payment_id || `cf_${order_id}`;
       const customerName = cfVerification.customerName || cfVerification.orderTags?.customer_name || booking.customer_name || req.user?.name || 'Player';
       const customerPhone = cfVerification.customerPhone || cfVerification.orderTags?.customer_phone || booking.customer_phone || req.user?.phone || '';
 
-      // Confirm booking with customer details
-      await query(
-        `UPDATE bookings 
-         SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5, customer_name = $6, customer_phone = $7 
-         WHERE razorpay_order_id = $8`,
-        [true, advancePaid, balance, 'confirmed', paymentId, customerName, customerPhone, order_id]
+      // Check if slot was booked by another customer while hold was expired
+      const slotOwnerCheck = await query(
+        "SELECT id, booking_status FROM bookings WHERE slot_id = $1 AND booking_status IN ('confirmed', 'completed', 'no_show') AND razorpay_order_id != $2",
+        [slotId, order_id]
       );
+      if (slotOwnerCheck.rows.length > 0) {
+        console.warn(`[LATE PAYMENT CONFLICT] Order ${order_id} was paid, but slot ${slotId} is already booked by booking ${slotOwnerCheck.rows[0].id}.`);
+        await query(
+          "UPDATE bookings SET payment_verified = $1, advance_paid_amount = $2, booking_status = 'slot_conflict', refund_status = 'pending_refund', refund_amount = $3, razorpay_payment_id = $4 WHERE razorpay_order_id = $5",
+          [true, advancePaid, advancePaid, paymentId, order_id]
+        );
+        return res.status(409).json({
+          error: 'Your payment was received, but the slot hold expired and the slot was booked by another player. A full refund has been initiated.',
+          slot_conflict: true,
+          refund_status: 'pending_refund',
+          refund_amount: advancePaid
+        });
+      }
 
-      // Confirm slot status is permanently booked
-      await query(
-        "UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1",
-        [booking.slot_id]
-      );
+      // 3. Update database status with dedicated client transaction
+      await withTransaction(async (txQuery) => {
+        // Confirm booking idempotently
+        await txQuery(
+          `UPDATE bookings 
+           SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5, customer_name = $6, customer_phone = $7 
+           WHERE razorpay_order_id = $8`,
+          [true, advancePaid, balance, 'confirmed', paymentId, customerName, customerPhone, order_id]
+        );
 
-      await query('COMMIT');
+        // Confirm slot status is permanently booked
+        await txQuery(
+          "UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1",
+          [booking.slot_id]
+        );
+      });
     }
 
     // 4. Fetch fully detailed confirmed booking record
@@ -1099,9 +1148,41 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
   }
 });
 
-// POST /api/webhooks/cashfree (Cashfree Webhook listener for asynchronous events)
-app.post('/api/webhooks/cashfree', express.json(), async (req, res) => {
+// Webhook HMAC signature verification helper
+function verifyCashfreeSignature(req) {
+  const signature = req.headers['x-webhook-signature'];
+  const timestamp = req.headers['x-webhook-timestamp'];
+  if (!signature) return false;
+  const secret = process.env.CASHFREE_SECRET_KEY || CASHFREE_SECRET_KEY;
+  if (!secret) return false;
+
+  const raw = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
   try {
+    if (timestamp) {
+      const expected = crypto.createHmac('sha256', secret).update(timestamp + raw).digest('base64');
+      if (expected === signature) return true;
+    }
+    const fallbackExpected = crypto.createHmac('sha256', secret).update(raw).digest('base64');
+    return fallbackExpected === signature;
+  } catch (err) {
+    console.error('[WEBHOOK SIGNATURE VERIFY ERROR]:', err);
+    return false;
+  }
+}
+
+// POST /api/webhooks/cashfree (Cashfree Webhook listener for asynchronous events)
+app.post('/api/webhooks/cashfree', async (req, res) => {
+  try {
+    // 1. Verify webhook signature in production or when secret key is set
+    const hasSignature = !!req.headers['x-webhook-signature'];
+    if (CASHFREE_SECRET_KEY && hasSignature) {
+      const isValid = verifyCashfreeSignature(req);
+      if (!isValid) {
+        console.warn('[CASHFREE WEBHOOK] Unauthorized webhook call: Invalid HMAC signature');
+        return res.status(401).json({ error: 'Invalid webhook signature' });
+      }
+    }
+
     const payload = req.body;
     const orderData = payload?.data?.order || payload?.order;
     const paymentData = payload?.data?.payment || payload?.payment;
@@ -1122,15 +1203,30 @@ app.post('/api/webhooks/cashfree', express.json(), async (req, res) => {
           const balance = booking.total_amount - advancePaid;
           const custName = orderData?.customer_details?.customer_name || payload?.customer_details?.customer_name || booking.customer_name || 'Player';
           const custPhone = orderData?.customer_details?.customer_phone || payload?.customer_details?.customer_phone || booking.customer_phone || '';
-          await query('BEGIN');
-          await query(
-            `UPDATE bookings 
-             SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5, customer_name = $6, customer_phone = $7 
-             WHERE razorpay_order_id = $8`,
-            [true, advancePaid, balance, 'confirmed', paymentId, custName, custPhone, orderId]
+
+          // Check if slot was booked by someone else while hold was expired
+          const conflictCheck = await query(
+            "SELECT id FROM bookings WHERE slot_id = $1 AND booking_status IN ('confirmed', 'completed', 'no_show') AND razorpay_order_id != $2",
+            [booking.slot_id, orderId]
           );
-          await query("UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [booking.slot_id]);
-          await query('COMMIT');
+          if (conflictCheck.rows.length > 0) {
+            console.warn(`[WEBHOOK CONFLICT] Order ${orderId} paid, but slot ${booking.slot_id} already confirmed for ${conflictCheck.rows[0].id}.`);
+            await query(
+              "UPDATE bookings SET payment_verified = $1, advance_paid_amount = $2, booking_status = 'slot_conflict', refund_status = 'pending_refund', refund_amount = $3, razorpay_payment_id = $4 WHERE razorpay_order_id = $5",
+              [true, advancePaid, advancePaid, paymentId, orderId]
+            );
+            return res.status(200).json({ status: 'OK', conflict: true });
+          }
+
+          await withTransaction(async (txQuery) => {
+            await txQuery(
+              `UPDATE bookings 
+               SET payment_verified = $1, advance_paid_amount = $2, balance_amount = $3, booking_status = $4, razorpay_payment_id = $5, customer_name = $6, customer_phone = $7 
+               WHERE razorpay_order_id = $8 AND booking_status = 'pending'`,
+              [true, advancePaid, balance, 'confirmed', paymentId, custName, custPhone, orderId]
+            );
+            await txQuery("UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [booking.slot_id]);
+          });
           console.log(`[CASHFREE WEBHOOK SUCCESS] Confirmed booking ${booking.id} for order ${orderId}`);
         }
       } else {
@@ -1148,21 +1244,42 @@ app.post('/api/webhooks/cashfree', express.json(), async (req, res) => {
               const advancePaid = Number(cfVerification.orderAmount);
               const balance = totalPrice - advancePaid;
               const bookingId = crypto.randomUUID();
-              await query('BEGIN');
-              await query(
-                `INSERT INTO bookings (
-                  id, slot_id, user_id, created_at,
-                  total_amount, advance_amount, advance_paid_amount, balance_amount,
-                  razorpay_order_id, payment_verified, booking_status, razorpay_payment_id
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-                [bookingId, slotId, userId, new Date().toISOString(), totalPrice, advancePaid, advancePaid, balance, orderId, true, 'confirmed', paymentId]
+
+              // Check if slot was booked by someone else while hold was expired
+              const conflictCheck = await query(
+                "SELECT id FROM bookings WHERE slot_id = $1 AND booking_status IN ('confirmed', 'completed', 'no_show')",
+                [slotId]
               );
-              await query(
-                'UPDATE bookings SET customer_name = $1, customer_phone = $2 WHERE id = $3',
-                [custName, custPhone, bookingId]
-              ).catch(() => {});
-              await query("UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [slotId]);
-              await query('COMMIT');
+              if (conflictCheck.rows.length > 0) {
+                console.warn(`[WEBHOOK RECOVERY CONFLICT] Slot ${slotId} already confirmed for ${conflictCheck.rows[0].id}.`);
+                await query(
+                  `INSERT INTO bookings (
+                    id, slot_id, user_id, created_at,
+                    total_amount, advance_amount, advance_paid_amount, balance_amount,
+                    razorpay_order_id, payment_verified, booking_status, razorpay_payment_id, refund_status, refund_amount
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                  ON CONFLICT (razorpay_order_id) DO NOTHING`,
+                  [bookingId, slotId, userId, new Date().toISOString(), totalPrice, advancePaid, advancePaid, balance, orderId, true, 'slot_conflict', paymentId, 'pending_refund', advancePaid]
+                );
+                return res.status(200).json({ status: 'OK', conflict: true });
+              }
+
+              await withTransaction(async (txQuery) => {
+                await txQuery(
+                  `INSERT INTO bookings (
+                    id, slot_id, user_id, created_at,
+                    total_amount, advance_amount, advance_paid_amount, balance_amount,
+                    razorpay_order_id, payment_verified, booking_status, razorpay_payment_id
+                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                  ON CONFLICT (razorpay_order_id) DO NOTHING`,
+                  [bookingId, slotId, userId, new Date().toISOString(), totalPrice, advancePaid, advancePaid, balance, orderId, true, 'confirmed', paymentId]
+                );
+                await txQuery(
+                  'UPDATE bookings SET customer_name = $1, customer_phone = $2 WHERE id = $3',
+                  [custName, custPhone, bookingId]
+                ).catch(() => {});
+                await txQuery("UPDATE slots SET status = 'booked', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [slotId]);
+              });
               console.log(`[CASHFREE WEBHOOK RECOVERED] Created and confirmed booking ${bookingId} for order ${orderId}`);
             }
           }
@@ -1308,7 +1425,7 @@ app.get('/api/admin/bookings', authenticateAdmin, async (req, res) => {
         LEFT JOIN users u ON b.user_id = u.id
         WHERE s.date = $1 
           AND b.advance_paid_amount > 0 
-          AND b.booking_status IN ('confirmed', 'completed')
+          AND b.booking_status IN ('confirmed', 'completed', 'no_show')
         ORDER BY s.start_time ASC
       `;
       params = [date];
@@ -1412,14 +1529,16 @@ app.post('/api/admin/slots/block', authenticateAdmin, async (req, res) => {
   }
 
   try {
-    await query('BEGIN');
-    for (const slotId of slot_ids) {
-      await query("UPDATE slots SET status = $1 WHERE id = $2", ['blocked', slotId]);
-    }
-    await query('COMMIT');
-    res.json({ success: true, message: 'Slots blocked successfully' });
+    let blockedCount = 0;
+    await withTransaction(async (txQuery) => {
+      for (const slotId of slot_ids) {
+        // Precondition: Only block if slot is currently available (never block booked slots)
+        const r = await txQuery("UPDATE slots SET status = 'blocked' WHERE id = $1 AND status = 'available'", [slotId]);
+        if (r && r.rowCount > 0) blockedCount++;
+      }
+    });
+    res.json({ success: true, message: `${blockedCount} slots blocked successfully` });
   } catch (err) {
-    try { await query('ROLLBACK'); } catch (rb) {}
     console.error('Failed to block slots:', err);
     res.status(500).json({ error: 'Failed to block slots' });
   }
@@ -1433,14 +1552,16 @@ app.post('/api/admin/slots/unblock', authenticateAdmin, async (req, res) => {
   }
 
   try {
-    await query('BEGIN');
-    for (const slotId of slot_ids) {
-      await query("UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1", [slotId]);
-    }
-    await query('COMMIT');
-    res.json({ success: true, message: 'Slots unblocked successfully' });
+    let unblockedCount = 0;
+    await withTransaction(async (txQuery) => {
+      for (const slotId of slot_ids) {
+        // Precondition: Only unblock if slot is currently blocked (never unblock booked slots)
+        const r = await txQuery("UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1 AND status = 'blocked'", [slotId]);
+        if (r && r.rowCount > 0) unblockedCount++;
+      }
+    });
+    res.json({ success: true, message: `${unblockedCount} slots unblocked successfully` });
   } catch (err) {
-    try { await query('ROLLBACK'); } catch (rb) {}
     console.error('Failed to unblock slots:', err);
     res.status(500).json({ error: 'Failed to unblock slots' });
   }
