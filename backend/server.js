@@ -1543,6 +1543,7 @@ app.post('/api/admin/slots/block', authenticateAdmin, async (req, res) => {
   }
 
   try {
+    await revertExpiredHolds();
     let blockedCount = 0;
     await withTransaction(async (txQuery) => {
       for (const slotId of slot_ids) {
@@ -1566,6 +1567,7 @@ app.post('/api/admin/slots/unblock', authenticateAdmin, async (req, res) => {
   }
 
   try {
+    await revertExpiredHolds();
     let unblockedCount = 0;
     await withTransaction(async (txQuery) => {
       for (const slotId of slot_ids) {

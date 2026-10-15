@@ -556,6 +556,36 @@ export const query = async (text, params = []) => {
             await batch.commit();
           }
           return { rows: [] };
+        } else if (trimmedText.includes("SET status = 'blocked'") || trimmedText.includes("SET status='blocked'")) {
+          // Admin block slot query: UPDATE slots SET status = 'blocked' WHERE id = $1 AND status = 'available'
+          const slotId = params[0];
+          let rowCount = 0;
+          const slotRef = firestoreDb.collection('slots').doc(slotId);
+          const slotDoc = await slotRef.get();
+          if (slotDoc.exists && slotDoc.data().status === 'available') {
+            await slotRef.update({
+              status: 'blocked',
+              held_until: null,
+              held_by_user_id: null
+            });
+            rowCount = 1;
+          }
+          return { rows: [], rowCount };
+        } else if (trimmedText.includes("status = 'blocked'") || trimmedText.includes("status='blocked'")) {
+          // Admin unblock slot query: UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1 AND status = 'blocked'
+          const slotId = params[0];
+          let rowCount = 0;
+          const slotRef = firestoreDb.collection('slots').doc(slotId);
+          const slotDoc = await slotRef.get();
+          if (slotDoc.exists && slotDoc.data().status === 'blocked') {
+            await slotRef.update({
+              status: 'available',
+              held_until: null,
+              held_by_user_id: null
+            });
+            rowCount = 1;
+          }
+          return { rows: [], rowCount };
         } else if (trimmedText.includes("status = 'available'") && trimmedText.includes('held_until = NULL') && trimmedText.includes('WHERE id =')) {
           // Revert hold query: UPDATE slots SET status = 'available', held_until = NULL, held_by_user_id = NULL WHERE id = $1
           const slotId = params[0];
@@ -1293,9 +1323,7 @@ export const getDbDiagnostics = () => ({
 // Production transaction wrapper pinning clients in PostgreSQL
 export const withTransaction = async (callback) => {
   if (isFirestore) {
-    return firestoreDb.runTransaction(async (transaction) => {
-      return callback(query);
-    });
+    return callback(query);
   } else if (isPostgres) {
     const client = await pgPool.connect();
     try {
