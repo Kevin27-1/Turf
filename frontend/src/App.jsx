@@ -29,7 +29,8 @@ import {
   X,
   ChevronLeft,
   Eye,
-  EyeOff
+  EyeOff,
+  Search
 } from 'lucide-react';
 
 // Format date to local YYYY-MM-DD string
@@ -217,6 +218,12 @@ export default function App() {
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
 
+  // Missing Payment Recovery State
+  const [recoverOrderId, setRecoverOrderId] = useState('');
+  const [recoveringOrder, setRecoveringOrder] = useState(false);
+  const [recoverOrderMsg, setRecoverOrderMsg] = useState({ type: '', text: '' });
+  const [showRecoverBox, setShowRecoverBox] = useState(false);
+
   // Support Form State
   const [supportMessage, setSupportMessage] = useState('');
   const [supportSuccess, setSupportSuccess] = useState('');
@@ -308,12 +315,12 @@ export default function App() {
     }
   }, []);
 
-  // Show payment & receipt notice popup when opening booking selection tab
+  // Show payment & receipt notice popup when opening booking selection tab (only if not already confirmed)
   useEffect(() => {
-    if (currentTab === 'book') {
+    if (currentTab === 'book' && !confirmedBooking) {
       setShowPaymentNoticeModal(true);
     }
-  }, [currentTab]);
+  }, [currentTab, confirmedBooking]);
 
   // Handle return from payment gateway (Cashfree redirect with ?order_id=...)
   useEffect(() => {
@@ -324,8 +331,11 @@ export default function App() {
       const verifyFromRedirect = async () => {
         const token = localStorage.getItem('jwt_token');
         setBookingLoading(true);
-        // Resilient retry polling: 4 attempts with 2-second delay to handle bank confirmation delays
-        for (let attempt = 1; attempt <= 4; attempt++) {
+        setBookingError('');
+        setShowPaymentNoticeModal(false);
+        let lastError = '';
+        // Resilient retry polling: 5 attempts with 2-second delay to handle bank confirmation delays
+        for (let attempt = 1; attempt <= 5; attempt++) {
           try {
             const verifyRes = await fetch('/api/bookings/verify', {
               method: 'POST',
@@ -338,6 +348,9 @@ export default function App() {
             const verifyData = await verifyRes.json();
             if (verifyRes.ok && verifyData && verifyData.success && verifyData.booking) {
               setConfirmedBooking(verifyData.booking);
+              setShowPaymentNoticeModal(false);
+              setSelectedSlot(null);
+              setHoldData(null);
               setCurrentTab('book');
               if (verifyData.booking.slot?.date) {
                 setSelectedDate(verifyData.booking.slot.date);
@@ -346,19 +359,26 @@ export default function App() {
               if (selectedDate || verifyData.booking.slot?.date) {
                 fetchSlots(verifyData.booking.slot?.date || selectedDate, true);
               }
+              lastError = '';
               break;
+            } else {
+              lastError = verifyData?.error || 'Payment verification pending.';
             }
             if (verifyData?.error && !verifyData.error.includes('PENDING') && !verifyData.error.includes('not completed')) {
               break;
             }
           } catch (e) {
             console.error(`Auto-verify redirect attempt ${attempt} failed:`, e);
+            lastError = e.message;
           }
-          if (attempt < 4) {
+          if (attempt < 5) {
             await new Promise(r => setTimeout(r, 2000));
           }
         }
         setBookingLoading(false);
+        if (lastError) {
+          setBookingError(lastError);
+        }
         // Clean up URL query parameters cleanly
         window.history.replaceState({}, document.title, window.location.pathname);
       };
@@ -779,14 +799,15 @@ export default function App() {
         // We always query the backend to double-check Cashfree order status!
       }
 
-      // 4. Verify payment with backend (polling up to 3 times to account for bank confirmation latency)
+      // 4. Verify payment with backend (polling up to 5 times to account for bank confirmation latency)
       setBookingLoading(true);
       setBookingError('');
+      setShowPaymentNoticeModal(false);
 
       let verifiedSuccessfully = false;
       let lastErrMsg = '';
 
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= 5; attempt++) {
         try {
           const verifyRes = await fetch('/api/bookings/verify', {
             method: 'POST',
@@ -806,12 +827,14 @@ export default function App() {
             const updatedBookings = [verifyData.booking, ...myBookings];
             setMyBookings(updatedBookings);
             setConfirmedBooking(verifyData.booking);
+            setShowPaymentNoticeModal(false);
             setCurrentTab('book'); // Redirect directly to the booking section!
             setProfileSub(null);
             
             // Clean up modal states but keep confirmedBooking
             setSelectedSlot(null);
             setHoldData(null);
+            setBookingLoading(false);
 
             // Refresh slots and bookings in background
             await fetchBookings();
@@ -829,7 +852,7 @@ export default function App() {
           lastErrMsg = e.message;
         }
 
-        if (attempt < 3) {
+        if (attempt < 5) {
           await new Promise(r => setTimeout(r, 2000));
         }
       }
@@ -847,6 +870,43 @@ export default function App() {
       console.error(err);
       setBookingError(err.message || 'An error occurred during booking process.');
       setBookingLoading(false);
+    }
+  };
+
+  // Missing Payment Recovery Handler
+  const handleRecoverOrder = async (e) => {
+    if (e) e.preventDefault();
+    const cleanId = recoverOrderId.trim();
+    if (!cleanId) {
+      setRecoverOrderMsg({ type: 'error', text: 'Please enter your Order ID (found in SMS or UPI statement).' });
+      return;
+    }
+    setRecoveringOrder(true);
+    setRecoverOrderMsg({ type: '', text: '' });
+    try {
+      const token = localStorage.getItem('jwt_token');
+      const res = await fetch('/api/bookings/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({ order_id: cleanId })
+      });
+      const data = await res.json();
+      if (res.ok && data.success && data.booking) {
+        setConfirmedBooking(data.booking);
+        setRecoverOrderId('');
+        setRecoverOrderMsg({ type: 'success', text: 'Booking confirmed! Receipt loaded.' });
+        await fetchBookings();
+        setCurrentTab('passes');
+      } else {
+        setRecoverOrderMsg({ type: 'error', text: data.error || 'Could not verify payment for this Order ID.' });
+      }
+    } catch (err) {
+      setRecoverOrderMsg({ type: 'error', text: err.message || 'Network connection failed.' });
+    } finally {
+      setRecoveringOrder(false);
     }
   };
 
@@ -1944,9 +2004,9 @@ export default function App() {
         <main id="booking-section-container" className="flex-1 w-full flex flex-col px-6">
           {/* Confirmed Booking Success Modal Overlay in Booking Section */}
           {confirmedBooking && (
-            <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
-              <div className="w-full max-w-md bg-neutral-950 border border-[#22c55e]/40 p-6 shadow-2xl relative">
-                <div className="flex items-center justify-between border-b border-neutral-900 pb-3 mb-4">
+            <div className="fixed inset-0 z-[80] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+              <div className="w-full max-w-md bg-[#0a0a0a] border-2 border-[#22c55e] p-6 shadow-[0_0_40px_rgba(34,197,94,0.3)] relative">
+                <div className="flex items-center justify-between border-b border-neutral-800 pb-3 mb-4">
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-5 h-5 text-[#22c55e]" />
                     <span className="text-xs font-black text-white uppercase tracking-wider">
@@ -1962,46 +2022,59 @@ export default function App() {
                 </div>
 
                 <div className="space-y-3 text-xs mb-5">
-                  <div className="p-3 bg-[#22c55e]/10 border border-[#22c55e]/20 text-[10px] text-[#22c55e] font-bold uppercase tracking-wider">
-                    Slot successfully booked! Payment verified via Cashfree.
+                  <div className="p-3 bg-[#22c55e]/10 border border-[#22c55e]/20 text-[10px] text-[#22c55e] font-bold uppercase tracking-wider flex items-center justify-between">
+                    <span>Slot Booked &amp; Confirmed!</span>
+                    <span className="font-mono text-neutral-300">REF: {confirmedBooking.id?.substring(0, 8).toUpperCase()}</span>
                   </div>
-                  <div className="bg-neutral-900/40 p-3.5 border border-neutral-900 space-y-2">
+                  <div className="bg-neutral-900/60 p-4 border border-neutral-800 space-y-2.5">
                     <div className="flex justify-between">
-                      <span className="text-[10px] text-neutral-500 font-bold uppercase">Date</span>
+                      <span className="text-[10px] text-neutral-400 font-bold uppercase">Date</span>
                       <span className="font-bold text-white">
                         {formatDateDisplayLong(confirmedBooking.slot?.date || confirmedBooking.date)}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-[10px] text-neutral-500 font-bold uppercase">Time Duration</span>
+                      <span className="text-[10px] text-neutral-400 font-bold uppercase">Time Duration</span>
                       <span className="font-bold text-[#22c55e]">
                         {formatTime12h(confirmedBooking.slot?.start_time || confirmedBooking.start_time)} - {formatTime12h(confirmedBooking.slot?.end_time || confirmedBooking.end_time)}
                       </span>
                     </div>
+                    <div className="flex justify-between border-t border-neutral-800/80 pt-2">
+                      <span className="text-[10px] text-neutral-400 font-bold uppercase">Player</span>
+                      <span className="font-bold text-white uppercase truncate max-w-[200px]">
+                        {confirmedBooking.customer_name || user?.name || 'Player'}
+                      </span>
+                    </div>
                     <div className="flex justify-between">
-                      <span className="text-[10px] text-neutral-500 font-bold uppercase">Online Advance Paid</span>
+                      <span className="text-[10px] text-neutral-400 font-bold uppercase">Total Court Price</span>
+                      <span className="font-bold text-white">
+                        ₹{confirmedBooking.total_amount || confirmedBooking.slot?.price || confirmedBooking.slot_price || 1200}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-[10px] text-[#22c55e] font-bold uppercase">Paid Online (Advance)</span>
                       <span className="font-bold text-[#22c55e]">₹{confirmedBooking.advance_paid_amount}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-[10px] text-neutral-500 font-bold uppercase">Due at Venue</span>
+                      <span className="text-[10px] text-amber-500 font-bold uppercase">Due at Venue</span>
                       <span className="font-bold text-amber-500">₹{confirmedBooking.balance_amount}</span>
                     </div>
                   </div>
-                  <p className="text-[10px] text-neutral-400">
-                    Your court booking is reserved at Golden Arm Turf. Present this confirmation upon arrival.
-                  </p>
+                  <div className="p-2.5 bg-[#22c55e]/5 border border-[#22c55e]/15 text-[10px] text-neutral-300 font-semibold">
+                    Please pay remaining <strong className="text-amber-400">₹{confirmedBooking.balance_amount}</strong> at the venue upon arrival.
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => { setCurrentTab('passes'); }}
-                    className="py-3 border border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/10 font-bold text-xs uppercase tracking-wider transition cursor-pointer"
+                    className="py-3 border-2 border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/15 font-black text-xs uppercase tracking-wider transition cursor-pointer"
                   >
                     View Voucher
                   </button>
                   <button
                     onClick={() => setConfirmedBooking(null)}
-                    className="py-3 bg-[#22c55e] text-black font-extrabold text-xs uppercase tracking-wider hover:bg-[#1db252] transition cursor-pointer"
+                    className="py-3 bg-[#22c55e] text-black font-black text-xs uppercase tracking-wider hover:bg-[#1db252] transition cursor-pointer shadow-[2px_2px_0px_#000]"
                   >
                     Book More Slots
                   </button>
@@ -2192,21 +2265,7 @@ export default function App() {
       {/* 3. PASSES TAB */}
       {currentTab === 'passes' && (
         <main className="flex-1 w-full flex flex-col px-6">
-          {!user ? (
-            <div className="border border-neutral-900 bg-neutral-950/20 p-8 text-center mt-4">
-              <Lock className="w-8 h-8 text-neutral-700 mx-auto mb-2" />
-              <p className="text-xs font-bold text-neutral-400 mb-1 uppercase tracking-wider">Authentication Required</p>
-              <p className="text-[10px] text-neutral-500 max-w-[200px] mx-auto mb-6">
-                Please log in from the Profile tab to view your booked passes.
-              </p>
-              <button
-                onClick={() => setCurrentTab('profile')}
-                className="w-full py-3 bg-[#22c55e] text-black font-extrabold text-xs uppercase tracking-wider rounded-none"
-              >
-                Go to Profile
-              </button>
-            </div>
-          ) : confirmedBooking ? (
+          {confirmedBooking ? (
             <div className="animate-in fade-in zoom-in-95 duration-200">
               <div className="flex flex-col items-center text-center">
                 <div className="w-12 h-12 bg-[#22c55e]/10 flex items-center justify-center border border-[#22c55e]/30 mb-4">
@@ -2300,6 +2359,20 @@ export default function App() {
                 className="w-full py-4.5 bg-[#22c55e] text-black font-extrabold text-xs uppercase tracking-wider rounded-none"
               >
                 Close Receipt
+              </button>
+            </div>
+          ) : !user ? (
+            <div className="border border-neutral-900 bg-neutral-950/20 p-8 text-center mt-4">
+              <Lock className="w-8 h-8 text-neutral-700 mx-auto mb-2" />
+              <p className="text-xs font-bold text-neutral-400 mb-1 uppercase tracking-wider">Authentication Required</p>
+              <p className="text-[10px] text-neutral-500 max-w-[200px] mx-auto mb-6">
+                Please log in from the Profile tab to view your booked passes.
+              </p>
+              <button
+                onClick={() => setCurrentTab('profile')}
+                className="w-full py-3 bg-[#22c55e] text-black font-extrabold text-xs uppercase tracking-wider rounded-none"
+              >
+                Go to Profile
               </button>
             </div>
           ) : (
@@ -2396,6 +2469,54 @@ export default function App() {
                 </div>
                 );
               })()}
+
+              {/* Payment Verification / Missing Receipt Helper */}
+              <div className="mt-4 mb-6 border border-neutral-800 bg-neutral-950/70 p-4">
+                <button
+                  type="button"
+                  onClick={() => setShowRecoverBox(!showRecoverBox)}
+                  className="w-full flex items-center justify-between text-left text-xs font-bold text-neutral-300 hover:text-white transition cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <Search className="w-4 h-4 text-[#22c55e]" />
+                    Missing confirmation receipt after payment?
+                  </span>
+                  <span className="text-[10px] text-[#22c55e] font-black uppercase tracking-wider">
+                    {showRecoverBox ? 'Hide' : 'Verify Order ID'}
+                  </span>
+                </button>
+
+                {showRecoverBox && (
+                  <form onSubmit={handleRecoverOrder} className="mt-3 pt-3 border-t border-neutral-800 space-y-2.5">
+                    <p className="text-[10px] text-neutral-400 leading-relaxed">
+                      If payment was debited from your bank/UPI app but the receipt didn't show, enter your <strong className="text-white">Cashfree Order ID</strong> (from SMS or bank note, e.g. <span className="font-mono text-[#22c55e]">cf_...</span>) to immediately fetch and confirm your receipt:
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={recoverOrderId}
+                        onChange={(e) => setRecoverOrderId(e.target.value)}
+                        placeholder="e.g. cf_xxxxxxxx_xxxxxxxx"
+                        className="flex-1 bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs text-white placeholder-neutral-500 font-mono focus:border-[#22c55e] outline-none"
+                      />
+                      <button
+                        type="submit"
+                        disabled={recoveringOrder}
+                        className="px-4 py-2 bg-[#22c55e] hover:bg-[#1db252] disabled:opacity-50 text-black font-black text-xs uppercase tracking-wider cursor-pointer shadow-[2px_2px_0px_#000]"
+                      >
+                        {recoveringOrder ? 'Verifying...' : 'Get Receipt'}
+                      </button>
+                    </div>
+                    {recoverOrderMsg.text && (
+                      <div className={`p-2.5 text-[10px] font-bold ${
+                        recoverOrderMsg.type === 'error' ? 'text-red-400 bg-red-950/30 border border-red-900/50' : 'text-[#22c55e] bg-[#22c55e]/10 border border-[#22c55e]/20'
+                      }`}>
+                        {recoverOrderMsg.text}
+                      </div>
+                    )}
+                  </form>
+                )}
+              </div>
             </div>
           )}
         </main>
@@ -4256,7 +4377,7 @@ export default function App() {
       )}
 
       {/* RETURN TO WEBSITE & RECEIPT NOTICE POPUP */}
-      {showPaymentNoticeModal && (
+      {showPaymentNoticeModal && !confirmedBooking && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[70] flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-[#0a0a0a] border-2 border-[#22c55e] p-6 text-center relative shadow-[0_0_40px_rgba(34,197,94,0.25)] animate-in fade-in zoom-in-95 duration-200">
             <button

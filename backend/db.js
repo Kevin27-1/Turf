@@ -189,6 +189,18 @@ async function checkAndMigratePostgres() {
       await pgPool.query("ALTER TABLE users ADD COLUMN password_hash TEXT");
     }
 
+    // Migration check for customer_name and customer_phone columns in Postgres bookings table
+    const custCheck = await pgPool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'bookings' AND column_name = 'customer_name'
+    `);
+    if (custCheck.rows.length === 0) {
+      console.log("Migration: Adding customer_name and customer_phone columns to bookings table in Postgres...");
+      await pgPool.query("ALTER TABLE bookings ADD COLUMN customer_name TEXT");
+      await pgPool.query("ALTER TABLE bookings ADD COLUMN customer_phone TEXT");
+    }
+
     // Migration to 24-hour operation in Postgres
     await pgPool.query(`
       UPDATE admin_settings 
@@ -229,6 +241,8 @@ function initializeSqliteTables() {
       id TEXT PRIMARY KEY,
       slot_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
+      customer_name TEXT,
+      customer_phone TEXT,
       created_at TEXT NOT NULL,
       total_amount REAL,
       advance_amount REAL,
@@ -269,6 +283,8 @@ function initializeSqliteTables() {
     } else {
       console.log('SQLite tables initialized successfully.');
       sqliteDb.run("ALTER TABLE bookings ADD COLUMN device_type TEXT DEFAULT 'mobile'", () => {});
+      sqliteDb.run("ALTER TABLE bookings ADD COLUMN customer_name TEXT", () => {});
+      sqliteDb.run("ALTER TABLE bookings ADD COLUMN customer_phone TEXT", () => {});
       sqliteDb.run("ALTER TABLE admin_settings ADD COLUMN price_per_slot_day REAL DEFAULT 1200", () => {});
       sqliteDb.run("ALTER TABLE admin_settings ADD COLUMN price_per_slot_night REAL DEFAULT 1500", () => {});
       sqliteDb.run("ALTER TABLE users ADD COLUMN password_hash TEXT", () => {});
@@ -322,6 +338,8 @@ async function initializePostgresTables() {
       id TEXT PRIMARY KEY,
       slot_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
+      customer_name TEXT,
+      customer_phone TEXT,
       created_at TEXT NOT NULL,
       total_amount REAL,
       advance_amount REAL,
@@ -360,6 +378,8 @@ async function initializePostgresTables() {
     await pgPool.query(ddl);
     console.log('PostgreSQL tables initialized successfully.');
     await pgPool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT");
+    await pgPool.query("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS customer_name TEXT");
+    await pgPool.query("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS customer_phone TEXT");
     await pgPool.query(`
       INSERT INTO admin_settings (
         id, turf_name, operating_hours_start, operating_hours_end, 

@@ -1026,7 +1026,7 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
             total_amount, advance_amount, advance_paid_amount, balance_amount, 
             razorpay_order_id, payment_verified, booking_status, razorpay_payment_id, refund_status, refund_amount
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-          ON CONFLICT (razorpay_order_id) DO NOTHING`,
+          ON CONFLICT DO NOTHING`,
           [bookingId, slotId, targetUserId, createdAt, totalPrice, advancePaid, advancePaid, balance, order_id, true, 'slot_conflict', paymentId, 'pending_refund', advancePaid]
         );
         return res.status(409).json({
@@ -1044,7 +1044,7 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
             total_amount, advance_amount, advance_paid_amount, balance_amount, 
             razorpay_order_id, payment_verified, booking_status, razorpay_payment_id
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-          ON CONFLICT (razorpay_order_id) DO NOTHING`,
+          ON CONFLICT DO NOTHING`,
           [bookingId, slotId, targetUserId, createdAt, totalPrice, advancePaid, advancePaid, balance, order_id, true, 'confirmed', paymentId]
         );
         await txQuery(
@@ -1113,7 +1113,8 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
     // 4. Fetch fully detailed confirmed booking record
     const updatedBookingRes = await query(
       `SELECT b.id, b.slot_id, b.created_at, b.user_id,
-              COALESCE(u.name, 'Player') as customer_name, COALESCE(u.phone, '') as customer_phone,
+              COALESCE(b.customer_name, u.name, 'Player') as customer_name, 
+              COALESCE(b.customer_phone, u.phone, '') as customer_phone,
               b.total_amount, b.advance_amount, b.advance_paid_amount, b.balance_amount, b.booking_status,
               b.cancellation_deadline, b.cancelled_at, b.refund_amount, b.refund_status,
               s.date, s.start_time, s.end_time, s.price
@@ -1156,7 +1157,7 @@ app.post('/api/bookings/verify', authenticateUserOptional, async (req, res) => {
       booking: formattedBooking
     });
   } catch (err) {
-    await query('ROLLBACK');
+    try { await query('ROLLBACK'); } catch (rb) {}
     console.error('Error verifying Cashfree booking:', err);
     res.status(500).json({ error: err.message || 'Payment verification failed' });
   }
@@ -1272,7 +1273,7 @@ app.post('/api/webhooks/cashfree', async (req, res) => {
                     total_amount, advance_amount, advance_paid_amount, balance_amount,
                     razorpay_order_id, payment_verified, booking_status, razorpay_payment_id, refund_status, refund_amount
                   ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-                  ON CONFLICT (razorpay_order_id) DO NOTHING`,
+                  ON CONFLICT DO NOTHING`,
                   [bookingId, slotId, userId, new Date().toISOString(), totalPrice, advancePaid, advancePaid, balance, orderId, true, 'slot_conflict', paymentId, 'pending_refund', advancePaid]
                 );
                 return res.status(200).json({ status: 'OK', conflict: true });
@@ -1285,7 +1286,7 @@ app.post('/api/webhooks/cashfree', async (req, res) => {
                     total_amount, advance_amount, advance_paid_amount, balance_amount,
                     razorpay_order_id, payment_verified, booking_status, razorpay_payment_id
                   ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-                  ON CONFLICT (razorpay_order_id) DO NOTHING`,
+                  ON CONFLICT DO NOTHING`,
                   [bookingId, slotId, userId, new Date().toISOString(), totalPrice, advancePaid, advancePaid, balance, orderId, true, 'confirmed', paymentId]
                 );
                 await txQuery(
