@@ -533,7 +533,7 @@ export const query = async (text, params = []) => {
         const slotDoc = await firestoreDb.collection('slots').doc(params[1]).get();
         const userDoc = await firestoreDb.collection('users').doc(params[2]).get();
         
-        await firestoreDb.collection('bookings').doc(params[0]).set({
+        const bookingData = {
           slot_id: params[1],
           user_id: params[2],
           created_at: params[3],
@@ -548,7 +548,17 @@ export const query = async (text, params = []) => {
           customer_name: userDoc.exists ? userDoc.data().name : '',
           customer_phone: userDoc.exists ? userDoc.data().phone : '',
           slot: slotDoc.exists ? slotDoc.data() : null
-        });
+        };
+
+        if (params.length >= 12 && params[11]) {
+          bookingData.razorpay_payment_id = params[11];
+        }
+        if (params.length >= 14) {
+          bookingData.refund_status = params[12];
+          bookingData.refund_amount = params[13];
+        }
+
+        await firestoreDb.collection('bookings').doc(params[0]).set(bookingData, { merge: true });
         return { rows: [] };
       }
       
@@ -752,6 +762,31 @@ export const query = async (text, params = []) => {
         return { rows: [] };
       }
       
+      // 10c. SELECT id, booking_status FROM bookings WHERE slot_id = $1 AND booking_status IN ('confirmed', 'completed', 'no_show') [AND razorpay_order_id != $2]
+      if (trimmedText.includes('FROM bookings') && trimmedText.includes('slot_id = $1') && trimmedText.includes("booking_status IN ('confirmed', 'completed', 'no_show')")) {
+        const targetSlotId = params[0];
+        const excludeOrderId = params.length > 1 ? params[1] : null;
+
+        const snap = await firestoreDb.collection('bookings')
+          .where('slot_id', '==', targetSlotId)
+          .get();
+
+        const rows = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(data => {
+            const isConfirmedStatus = ['confirmed', 'completed', 'no_show'].includes(data.booking_status);
+            const isDifferentOrder = !excludeOrderId || data.razorpay_order_id !== excludeOrderId;
+            return isConfirmedStatus && isDifferentOrder;
+          })
+          .map(data => ({
+            id: data.id,
+            booking_status: data.booking_status,
+            slot_id: data.slot_id
+          }));
+
+        return { rows };
+      }
+      
       // 11. SELECT b.id, b.slot_id, b.created_at, b.user_id, u.name as customer_name, u.phone as customer_phone, ... WHERE b.user_id = $1
       if (trimmedText.includes('FROM bookings') && (trimmedText.includes('b.user_id = $1') || trimmedText.includes('user_id = $1'))) {
         const snap = await firestoreDb.collection('bookings').where('user_id', '==', params[0]).get();
@@ -810,16 +845,33 @@ export const query = async (text, params = []) => {
       if (trimmedText.startsWith('UPDATE bookings SET payment_verified =') || trimmedText.startsWith('UPDATE bookings SET payment_verified=')) {
         const orderIdParam = params[params.length - 1];
         if (!orderIdParam) return { rows: [] };
-        const snap = await firestoreDb.collection('bookings').where('razorpay_order_id', '==', orderIdParam).get();
+        let snap = await firestoreDb.collection('bookings').where('razorpay_order_id', '==', orderIdParam).get();
+        let targetDocs = snap.docs;
+        
+        // Fallback: If not found by razorpay_order_id, check if orderIdParam matches a booking doc ID directly
+        if (targetDocs.length === 0) {
+          const directDoc = await firestoreDb.collection('bookings').doc(orderIdParam).get();
+          if (directDoc.exists) {
+            targetDocs = [directDoc];
+          }
+        }
+
         const batch = firestoreDb.batch();
-        for (const doc of snap.docs) {
+        for (const doc of targetDocs) {
           const docData = doc.data();
           const updateData = {
             payment_verified: true,
             booking_status: 'confirmed'
           };
           
-          if (params.length === 4) {
+          if (trimmedText.includes("booking_status = 'slot_conflict'")) {
+            updateData.payment_verified = true;
+            updateData.booking_status = 'slot_conflict';
+            updateData.advance_paid_amount = params[1];
+            updateData.refund_amount = params[2];
+            updateData.refund_status = 'pending_refund';
+            updateData.razorpay_payment_id = params[3];
+          } else if (params.length === 4) {
             updateData.advance_paid_amount = params[0];
             updateData.balance_amount = params[1];
             updateData.razorpay_payment_id = params[2];
@@ -919,8 +971,14 @@ export const query = async (text, params = []) => {
 
       // 11d. SELECT b.id, b.slot_id, b.user_id, ... FROM bookings b JOIN slots s ... WHERE b.id = $1
       if (trimmedText.includes('FROM bookings') && (trimmedText.includes('WHERE b.id = $1') || trimmedText.includes('WHERE id = $1'))) {
-        const doc = await firestoreDb.collection('bookings').doc(params[0]).get();
-        if (doc.exists) {
+        let doc = await firestoreDb.collection('bookings').doc(params[0]).get();
+        if (!doc.exists) {
+          const fallbackSnap = await firestoreDb.collection('bookings').where('razorpay_order_id', '==', params[0]).get();
+          if (!fallbackSnap.empty) {
+            doc = fallbackSnap.docs[0];
+          }
+        }
+        if (doc && doc.exists) {
           const data = doc.data();
           let slotDate = data.slot?.date;
           let slotStartTime = data.slot?.start_time;

@@ -364,8 +364,10 @@ export default function App() {
             } else {
               lastError = verifyData?.error || 'Payment verification pending.';
             }
-            if (verifyData?.error && !verifyData.error.includes('PENDING') && !verifyData.error.includes('not completed')) {
-              break;
+            if (verifyData?.error && !verifyData.error.includes('PENDING') && !verifyData.error.includes('ACTIVE') && !verifyData.error.includes('not completed')) {
+              if (verifyRes.status === 404 || verifyRes.status === 403 || verifyRes.status === 409) {
+                break;
+              }
             }
           } catch (e) {
             console.error(`Auto-verify redirect attempt ${attempt} failed:`, e);
@@ -844,8 +846,10 @@ export default function App() {
             break;
           } else {
             lastErrMsg = verifyData?.error || 'Payment verification pending.';
-            if (verifyData?.error && !verifyData.error.includes('PENDING') && !verifyData.error.includes('not completed')) {
-              break;
+            if (verifyData?.error && !verifyData.error.includes('PENDING') && !verifyData.error.includes('ACTIVE') && !verifyData.error.includes('not completed')) {
+              if (verifyRes.status === 404 || verifyRes.status === 403 || verifyRes.status === 409) {
+                break;
+              }
             }
           }
         } catch (e) {
@@ -2002,87 +2006,6 @@ export default function App() {
       {/* 2. BOOK TAB */}
       {currentTab === 'book' && (
         <main id="booking-section-container" className="flex-1 w-full flex flex-col px-6">
-          {/* Confirmed Booking Success Modal Overlay in Booking Section */}
-          {confirmedBooking && (
-            <div className="fixed inset-0 z-[80] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-              <div className="w-full max-w-md bg-[#0a0a0a] border-2 border-[#22c55e] p-6 shadow-[0_0_40px_rgba(34,197,94,0.3)] relative">
-                <div className="flex items-center justify-between border-b border-neutral-800 pb-3 mb-4">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5 text-[#22c55e]" />
-                    <span className="text-xs font-black text-white uppercase tracking-wider">
-                      Booking Confirmed!
-                    </span>
-                  </div>
-                  <button 
-                    onClick={() => setConfirmedBooking(null)}
-                    className="p-1 border border-neutral-800 text-neutral-400 hover:text-white transition cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="space-y-3 text-xs mb-5">
-                  <div className="p-3 bg-[#22c55e]/10 border border-[#22c55e]/20 text-[10px] text-[#22c55e] font-bold uppercase tracking-wider flex items-center justify-between">
-                    <span>Slot Booked &amp; Confirmed!</span>
-                    <span className="font-mono text-neutral-300">REF: {confirmedBooking.id?.substring(0, 8).toUpperCase()}</span>
-                  </div>
-                  <div className="bg-neutral-900/60 p-4 border border-neutral-800 space-y-2.5">
-                    <div className="flex justify-between">
-                      <span className="text-[10px] text-neutral-400 font-bold uppercase">Date</span>
-                      <span className="font-bold text-white">
-                        {formatDateDisplayLong(confirmedBooking.slot?.date || confirmedBooking.date)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[10px] text-neutral-400 font-bold uppercase">Time Duration</span>
-                      <span className="font-bold text-[#22c55e]">
-                        {formatTime12h(confirmedBooking.slot?.start_time || confirmedBooking.start_time)} - {formatTime12h(confirmedBooking.slot?.end_time || confirmedBooking.end_time)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between border-t border-neutral-800/80 pt-2">
-                      <span className="text-[10px] text-neutral-400 font-bold uppercase">Player</span>
-                      <span className="font-bold text-white uppercase truncate max-w-[200px]">
-                        {confirmedBooking.customer_name || user?.name || 'Player'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[10px] text-neutral-400 font-bold uppercase">Total Court Price</span>
-                      <span className="font-bold text-white">
-                        ₹{confirmedBooking.total_amount || confirmedBooking.slot?.price || confirmedBooking.slot_price || 1200}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[10px] text-[#22c55e] font-bold uppercase">Paid Online (Advance)</span>
-                      <span className="font-bold text-[#22c55e]">₹{confirmedBooking.advance_paid_amount}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-[10px] text-amber-500 font-bold uppercase">Due at Venue</span>
-                      <span className="font-bold text-amber-500">₹{confirmedBooking.balance_amount}</span>
-                    </div>
-                  </div>
-                  <div className="p-2.5 bg-[#22c55e]/5 border border-[#22c55e]/15 text-[10px] text-neutral-300 font-semibold">
-                    Please pay remaining <strong className="text-amber-400">₹{confirmedBooking.balance_amount}</strong> at the venue upon arrival.
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => { setCurrentTab('passes'); }}
-                    className="py-3 border-2 border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/15 font-black text-xs uppercase tracking-wider transition cursor-pointer"
-                  >
-                    View Voucher
-                  </button>
-                  <button
-                    onClick={() => setConfirmedBooking(null)}
-                    className="py-3 bg-[#22c55e] text-black font-black text-xs uppercase tracking-wider hover:bg-[#1db252] transition cursor-pointer shadow-[2px_2px_0px_#000]"
-                  >
-                    Book More Slots
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
           <div className="mb-6">
             <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 block mb-2 px-1">
               Select Booking Date
@@ -4370,6 +4293,87 @@ export default function App() {
                 className="px-6 py-2.5 bg-[#22c55e] text-black font-extrabold text-xs uppercase tracking-wider rounded-none hover:bg-[#1db252] transition cursor-pointer"
               >
                 Close Policy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GLOBAL BOOKING CONFIRMATION & RECEIPT VOUCHER MODAL */}
+      {confirmedBooking && (
+        <div className="fixed inset-0 z-[95] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-[#0a0a0a] border-2 border-[#22c55e] p-6 shadow-[0_0_50px_rgba(34,197,94,0.35)] relative">
+            <div className="flex items-center justify-between border-b border-neutral-800 pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-[#22c55e]" />
+                <span className="text-xs font-black text-white uppercase tracking-wider">
+                  Booking Confirmed!
+                </span>
+              </div>
+              <button 
+                onClick={() => setConfirmedBooking(null)}
+                className="p-1 border border-neutral-800 text-neutral-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs mb-5">
+              <div className="p-3 bg-[#22c55e]/10 border border-[#22c55e]/20 text-[10px] text-[#22c55e] font-bold uppercase tracking-wider flex items-center justify-between">
+                <span>Slot Booked &amp; Confirmed!</span>
+                <span className="font-mono text-neutral-300">REF: {confirmedBooking.id?.substring(0, 8).toUpperCase()}</span>
+              </div>
+              <div className="bg-neutral-900/60 p-4 border border-neutral-800 space-y-2.5">
+                <div className="flex justify-between">
+                  <span className="text-[10px] text-neutral-400 font-bold uppercase">Date</span>
+                  <span className="font-bold text-white">
+                    {formatDateDisplayLong(confirmedBooking.slot?.date || confirmedBooking.date)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[10px] text-neutral-400 font-bold uppercase">Time Duration</span>
+                  <span className="font-bold text-[#22c55e]">
+                    {formatTime12h(confirmedBooking.slot?.start_time || confirmedBooking.start_time)} - {formatTime12h(confirmedBooking.slot?.end_time || confirmedBooking.end_time)}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-neutral-800/80 pt-2">
+                  <span className="text-[10px] text-neutral-400 font-bold uppercase">Player</span>
+                  <span className="font-bold text-white uppercase truncate max-w-[200px]">
+                    {confirmedBooking.customer_name || user?.name || 'Player'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[10px] text-neutral-400 font-bold uppercase">Total Court Price</span>
+                  <span className="font-bold text-white">
+                    ₹{confirmedBooking.total_amount || confirmedBooking.slot?.price || confirmedBooking.slot_price || 1200}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[10px] text-[#22c55e] font-bold uppercase">Paid Online (Advance)</span>
+                  <span className="font-bold text-[#22c55e]">₹{confirmedBooking.advance_paid_amount}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[10px] text-amber-500 font-bold uppercase">Due at Venue</span>
+                  <span className="font-bold text-amber-500">₹{confirmedBooking.balance_amount}</span>
+                </div>
+              </div>
+              <div className="p-2.5 bg-[#22c55e]/5 border border-[#22c55e]/15 text-[10px] text-neutral-300 font-semibold">
+                Please pay remaining <strong className="text-amber-400">₹{confirmedBooking.balance_amount}</strong> at the venue upon arrival.
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => { setCurrentTab('passes'); }}
+                className="py-3 border-2 border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/15 font-black text-xs uppercase tracking-wider transition cursor-pointer text-center"
+              >
+                View Voucher
+              </button>
+              <button
+                onClick={() => setConfirmedBooking(null)}
+                className="py-3 bg-[#22c55e] text-black font-black text-xs uppercase tracking-wider hover:bg-[#1db252] transition cursor-pointer shadow-[2px_2px_0px_#000] text-center"
+              >
+                Book More Slots
               </button>
             </div>
           </div>
