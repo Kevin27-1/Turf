@@ -205,7 +205,7 @@ export default function NotFound({ onNavigate }) {
           </button>
           <span className="text-neutral-700">•</span>
           <a 
-            href="tel:9605512659" 
+            href="tel:8078326241" 
             className="hover:text-[#22c55e] transition-colors flex items-center gap-1"
           >
             <Phone className="w-3.5 h-3.5" />
@@ -245,8 +245,8 @@ export default function NotFound({ onNavigate }) {
         </p>
         <p>
           Customer Care:{' '}
-          <a href="tel:9605512659" className="text-[#22c55e] hover:underline font-mono">
-            9605512659
+          <a href="tel:8078326241" className="text-[#22c55e] hover:underline font-mono">
+            80783 26241
           </a>
         </p>
         <div className="pt-2 text-[10px] text-neutral-600">

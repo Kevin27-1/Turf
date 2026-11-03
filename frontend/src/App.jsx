@@ -13,6 +13,7 @@ import {
   MapPin, 
   ChevronRight, 
   ArrowLeft, 
+  ArrowDown, 
   Loader2, 
   AlertTriangle, 
   Sparkles,
@@ -255,6 +256,10 @@ export default function App() {
   const hasVerifiedRedirectRef = useRef(false);
   const slotsContainerRef = useRef(null);
   const lastAutoScrolledDateRef = useRef(null);
+  const [highlightedSlotTime, setHighlightedSlotTime] = useState(null);
+  const isTransitioningDateRef = useRef(false);
+  const touchStartYRef = useRef(0);
+  const bottomScrollTimerRef = useRef(null);
 
   const galleryImages = [
     { src: '/turf_real_day.webp', caption: 'Golden Arm Turf Pitch View (Day)' },
@@ -463,6 +468,95 @@ export default function App() {
 
     return () => clearTimeout(timer);
   }, [slots, loading, currentTab, selectedDate, todayIST, currentTimeIST]);
+
+  // Smoothly center the active date pill in the date selector bar
+  useEffect(() => {
+    if (selectedDate) {
+      const pill = document.getElementById(`date-pill-${selectedDate}`);
+      if (pill) {
+        pill.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
+  }, [selectedDate]);
+
+  // Navigate to Next Day and align directly to the 12-1 AM slot
+  const goToNextDay = () => {
+    if (isTransitioningDateRef.current) return;
+    const currentIndex = dates.findIndex(d => toLocalDateString(d) === selectedDate);
+    if (currentIndex >= 0 && currentIndex < dates.length - 1) {
+      const nextDateObj = dates[currentIndex + 1];
+      const nextDateStr = toLocalDateString(nextDateObj);
+      isTransitioningDateRef.current = true;
+
+      // Reset scroll position to top
+      if (slotsContainerRef.current) {
+        slotsContainerRef.current.scrollTo({ top: 0, behavior: 'instant' });
+      }
+
+      setSelectedDate(nextDateStr);
+      setHighlightedSlotTime('00:00');
+
+      setTimeout(() => {
+        setHighlightedSlotTime(null);
+      }, 2500);
+
+      setTimeout(() => {
+        isTransitioningDateRef.current = false;
+      }, 800);
+    }
+  };
+
+  const handleSlotsWheel = (e) => {
+    if (isTransitioningDateRef.current) return;
+    const container = slotsContainerRef.current;
+    if (!container) return;
+
+    // Scrolling down (deltaY > 0)
+    if (e.deltaY > 5) {
+      const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 25;
+      if (isAtBottom) {
+        goToNextDay();
+      }
+    }
+  };
+
+  const handleSlotsTouchStart = (e) => {
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleSlotsTouchMove = (e) => {
+    if (isTransitioningDateRef.current) return;
+    const container = slotsContainerRef.current;
+    if (!container) return;
+
+    const currentY = e.touches[0].clientY;
+    const deltaY = touchStartYRef.current - currentY; // positive when swiping up (scrolling down)
+
+    if (deltaY > 30) {
+      const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 25;
+      if (isAtBottom) {
+        goToNextDay();
+      }
+    }
+  };
+
+  const handleSlotsScroll = (e) => {
+    if (isTransitioningDateRef.current) return;
+    const container = e.currentTarget;
+    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 8;
+    if (isAtBottom) {
+      if (bottomScrollTimerRef.current) clearTimeout(bottomScrollTimerRef.current);
+      bottomScrollTimerRef.current = setTimeout(() => {
+        if (container.scrollHeight - container.scrollTop - container.clientHeight <= 15) {
+          goToNextDay();
+        }
+      }, 300);
+    } else {
+      if (bottomScrollTimerRef.current) {
+        clearTimeout(bottomScrollTimerRef.current);
+      }
+    }
+  };
 
   // Fetch Today's Live Availability Teaser whenever Home tab is active
   useEffect(() => {
@@ -2021,6 +2115,7 @@ export default function App() {
 
                 return (
                   <button
+                    id={`date-pill-${dateStr}`}
                     key={dateStr}
                     onClick={() => setSelectedDate(dateStr)}
                     className={`flex-shrink-0 flex flex-col items-center justify-center w-14 h-16 rounded-none border transition duration-200 ${
@@ -2105,6 +2200,10 @@ export default function App() {
             {!loading && !error && slots.length > 0 && (
               <div 
                 ref={slotsContainerRef}
+                onWheel={handleSlotsWheel}
+                onTouchStart={handleSlotsTouchStart}
+                onTouchMove={handleSlotsTouchMove}
+                onScroll={handleSlotsScroll}
                 className="grid grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto pr-1 no-scrollbar pb-6 scroll-smooth"
               >
                 {slots.map((slot) => {
@@ -2115,6 +2214,7 @@ export default function App() {
                   const isPast = slotDate < todayIST || (slotDate === todayIST && slot.start_time <= currentTimeIST);
                   const isDisabled = isBooked || isHeldByOthers || isPast;
                   const isFirstAvailable = firstAvailableSlotId === slot.id;
+                  const isHighlighted12am = highlightedSlotTime === slot.start_time && slot.start_time === '00:00';
 
                   return (
                     <button
@@ -2123,13 +2223,15 @@ export default function App() {
                       onClick={() => handleOpenBooking(slot)}
                       disabled={isDisabled}
                       className={`p-3 border flex flex-col text-left transition relative rounded-none ${
-                        isDisabled
-                          ? 'bg-neutral-950 border-neutral-900 text-neutral-600 cursor-not-allowed select-none opacity-60'
-                          : isHeldByMe
-                            ? 'bg-neutral-900/60 border-[#22c55e] hover:border-[#22c55e] active:scale-[0.97]'
-                            : isFirstAvailable
-                              ? 'bg-neutral-900/50 border-[#22c55e]/60 hover:border-[#22c55e] active:scale-[0.97] ring-1 ring-[#22c55e]/30'
-                              : 'bg-neutral-900/40 border-neutral-800 hover:border-[#22c55e] active:scale-[0.97] hover:bg-[#22c55e]/[0.02]'
+                        isHighlighted12am
+                          ? 'bg-[#22c55e]/15 border-[#22c55e] ring-2 ring-[#22c55e] shadow-[0_0_12px_rgba(34,197,94,0.3)] animate-pulse'
+                          : isDisabled
+                            ? 'bg-neutral-950 border-neutral-900 text-neutral-600 cursor-not-allowed select-none opacity-60'
+                            : isHeldByMe
+                              ? 'bg-neutral-900/60 border-[#22c55e] hover:border-[#22c55e] active:scale-[0.97]'
+                              : isFirstAvailable
+                                ? 'bg-neutral-900/50 border-[#22c55e]/60 hover:border-[#22c55e] active:scale-[0.97] ring-1 ring-[#22c55e]/30'
+                                : 'bg-neutral-900/40 border-neutral-800 hover:border-[#22c55e] active:scale-[0.97] hover:bg-[#22c55e]/[0.02]'
                       }`}
                     >
                       <span className={`text-[9px] font-bold px-2 py-0.5 self-start mb-3 border ${
@@ -2151,27 +2253,32 @@ export default function App() {
                         to {formatTime12h(slot.end_time)}
                       </span>
 
-                      {isBooked && (
+                      {isHighlighted12am && (
+                        <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-[#22c55e] border border-[#22c55e]/40 px-1 bg-[#22c55e]/20">
+                          12 AM Slot
+                        </span>
+                      )}
+                      {!isHighlighted12am && isBooked && (
                         <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-neutral-600">
                           Booked
                         </span>
                       )}
-                      {isHeldByOthers && (
+                      {!isHighlighted12am && isHeldByOthers && (
                         <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-neutral-600">
                           Held
                         </span>
                       )}
-                      {isPast && !isBooked && (
+                      {!isHighlighted12am && isPast && !isBooked && (
                         <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-neutral-600">
                           Expired
                         </span>
                       )}
-                      {isHeldByMe && !isPast && (
+                      {!isHighlighted12am && isHeldByMe && !isPast && (
                         <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-[#22c55e] animate-pulse">
                           Your Hold
                         </span>
                       )}
-                      {isFirstAvailable && !isDisabled && !isHeldByMe && (
+                      {!isHighlighted12am && isFirstAvailable && !isDisabled && !isHeldByMe && (
                         <span className="absolute top-3 right-3 text-[9px] uppercase font-bold tracking-wider text-[#22c55e] border border-[#22c55e]/30 px-1 bg-[#22c55e]/10">
                           Available
                         </span>
@@ -2179,6 +2286,35 @@ export default function App() {
                     </button>
                   );
                 })}
+
+                {/* Automatically advance to Next Day when scrolled past 11-12 PM */}
+                {(() => {
+                  const currIdx = dates.findIndex(d => toLocalDateString(d) === selectedDate);
+                  if (currIdx >= 0 && currIdx < dates.length - 1) {
+                    const nextDateObj = dates[currIdx + 1];
+                    const nextDateLabel = formatDateDisplayShort(toLocalDateString(nextDateObj));
+                    return (
+                      <div 
+                        onClick={goToNextDay}
+                        className="col-span-2 mt-2 p-3.5 border border-dashed border-[#22c55e]/30 bg-neutral-950/70 hover:bg-[#22c55e]/5 transition text-center flex items-center justify-between cursor-pointer group"
+                      >
+                        <div className="flex flex-col text-left">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 group-hover:text-white transition">
+                            Next Day: {nextDateLabel}
+                          </span>
+                          <span className="text-xs font-black text-[#22c55e] tracking-tight">
+                            12:00 AM – 01:00 AM Slot &rarr;
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[9px] text-neutral-500 font-bold uppercase tracking-wider border border-neutral-800 px-2 py-1 bg-neutral-900 group-hover:border-[#22c55e]/40 group-hover:text-[#22c55e] transition">
+                          <span>Scroll or Tap</span>
+                          <ArrowDown className="w-3 h-3 animate-bounce text-[#22c55e]" />
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             )}
           </div>
@@ -3502,7 +3638,7 @@ export default function App() {
 
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <a
-                  href="https://wa.me/919876543210?text=Hello%20Golden%20Arm%20Turf%20support"
+                  href="https://wa.me/918078326241?text=Hello%20Golden%20Arm%20Turf%20support"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="p-4 border border-neutral-900 bg-neutral-950/40 text-center flex flex-col items-center hover:border-[#22c55e] transition"
@@ -3512,7 +3648,7 @@ export default function App() {
                   <span className="text-[8px] text-neutral-600 mt-1">Instant Response</span>
                 </a>
                 <a
-                  href="tel:+919876543210"
+                  href="tel:+918078326241"
                   className="p-4 border border-neutral-900 bg-neutral-950/40 text-center flex flex-col items-center hover:border-[#22c55e] transition"
                 >
                   <Phone className="w-6 h-6 text-[#22c55e] mb-2" />
@@ -3797,10 +3933,10 @@ export default function App() {
                     Customer Care &amp; Support
                   </span>
                   <a
-                    href="tel:9605512659"
+                    href="tel:8078326241"
                     className="text-lg font-black text-[#22c55e] hover:underline font-mono"
                   >
-                    9605512659
+                    80783 26241
                   </a>
                 </div>
               </div>
@@ -3899,7 +4035,7 @@ export default function App() {
             </div>
             <div className="flex gap-3 w-full sm:w-auto">
               <a
-                href="tel:9605512659"
+                href="tel:8078326241"
                 className="flex-1 sm:flex-none px-4 py-2.5 border border-[#22c55e] text-[#22c55e] hover:bg-[#22c55e]/10 text-xs font-bold uppercase tracking-wider text-center transition"
               >
                 Call Customer Care
@@ -4048,8 +4184,8 @@ export default function App() {
           </p>
           <p className="mt-1">
             Customer Care:{' '}
-            <a href="tel:9605512659" className="text-[#22c55e] hover:underline font-mono">
-              9605512659
+            <a href="tel:8078326241" className="text-[#22c55e] hover:underline font-mono">
+              80783 26241
             </a>
           </p>
         </div>
@@ -4204,7 +4340,7 @@ export default function App() {
                     <p><strong className="text-neutral-400">Address:</strong> Sports City Complex, Alakode, Kannur, Kerala – 670571</p>
                     <p><strong className="text-neutral-400">Operating Hours:</strong> {is24Hours ? '24 Hours / 7 Days a week' : `${formatTime12h(publicSettings.operating_hours_start)} – ${formatTime12h(publicSettings.operating_hours_end)} Daily`}</p>
                     <p><strong className="text-neutral-400">Service:</strong> Sports Turf Slot Reservation</p>
-                    <p><strong className="text-neutral-400">Customer Care:</strong> <a href="tel:9605512659" className="text-[#22c55e] font-mono hover:underline">9605512659</a></p>
+                    <p><strong className="text-neutral-400">Customer Care:</strong> <a href="tel:8078326241" className="text-[#22c55e] font-mono hover:underline">80783 26241</a></p>
                     <p><strong className="text-neutral-400">Email:</strong> <a href="mailto:kevinmanu2777@gmail.com" className="text-[#22c55e] font-mono hover:underline">kevinmanu2777@gmail.com</a></p>
                     <p className="text-[11px] text-neutral-400 pt-2 border-t border-neutral-800">Website Owned by KEVIN MANU</p>
                   </div>
