@@ -2285,7 +2285,7 @@ export default function App() {
                 onPointerDown={handleSlotsPointerDown}
                 onKeyDown={handleSlotsKeyDown}
                 onScroll={handleSlotsScroll}
-                className="grid grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto pr-1 no-scrollbar pb-6 scroll-smooth"
+                className="grid grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto pr-1 no-scrollbar pb-10 md:pb-6 scroll-smooth"
               >
                 {slots.map((slot) => {
                   const slotDate = slot.date || selectedDate;
@@ -2377,7 +2377,7 @@ export default function App() {
                     return (
                       <div 
                         onClick={goToNextDay}
-                        className={`relative overflow-hidden col-span-2 mt-2 p-3.5 border border-dashed transition text-center flex items-center justify-between cursor-pointer group ${
+                        className={`relative overflow-hidden col-span-2 mt-2 min-h-[136px] pt-4 pb-14 px-4 md:py-8 md:px-5 border border-dashed transition text-center flex items-start md:items-center justify-between cursor-pointer group ${
                           isHoldingNextDay
                             ? 'border-[#22c55e] bg-[#22c55e]/10'
                             : 'border-[#22c55e]/30 bg-neutral-950/70 hover:bg-[#22c55e]/5'
@@ -2386,7 +2386,7 @@ export default function App() {
                         {isHoldingNextDay && (
                           <>
                             <div className="absolute inset-0 bg-[#22c55e]/15 animate-hold-progress pointer-events-none" />
-                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#22c55e] animate-hold-progress pointer-events-none" />
+                            <div className="absolute top-0 left-0 right-0 h-1 bg-[#22c55e] animate-hold-progress pointer-events-none" />
                           </>
                         )}
                         <div className="relative z-10 flex flex-col text-left">
