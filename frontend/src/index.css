@@ -76,3 +76,17 @@
   opacity: 1;
   transform: translateY(0);
 }
+
+@keyframes nextDayHoldProgress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.animate-hold-progress {
+  transform-origin: left center;
+  animation: nextDayHoldProgress 2s linear forwards;
+}

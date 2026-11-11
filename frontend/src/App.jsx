@@ -257,9 +257,14 @@ export default function App() {
   const slotsContainerRef = useRef(null);
   const lastAutoScrolledDateRef = useRef(null);
   const [highlightedSlotTime, setHighlightedSlotTime] = useState(null);
+  const [isHoldingNextDay, setIsHoldingNextDay] = useState(false);
+  const [holdSecondsLeft, setHoldSecondsLeft] = useState(2);
   const isTransitioningDateRef = useRef(false);
+  const isAutoScrollingRef = useRef(false);
+  const userInteractedScrollRef = useRef(false);
   const touchStartYRef = useRef(0);
   const bottomScrollTimerRef = useRef(null);
+  const holdIntervalRef = useRef(null);
 
   const galleryImages = [
     { src: '/turf_real_day.webp', caption: 'Golden Arm Turf Pitch View (Day)' },
@@ -445,6 +450,7 @@ export default function App() {
     lastAutoScrolledDateRef.current = selectedDate;
 
     // Give DOM time to finish render and layout
+    let releaseAutoScrollTimer = null;
     const timer = setTimeout(() => {
       const el = document.getElementById(targetSlot.id);
       const container = slotsContainerRef.current;
@@ -454,10 +460,15 @@ export default function App() {
         // Calculate offset so targetSlot is aligned at the top of the visible container
         const targetScrollTop = elRect.top - containerRect.top + container.scrollTop;
 
+        isAutoScrollingRef.current = true;
         container.scrollTo({
           top: Math.max(0, targetScrollTop - 4),
           behavior: 'smooth'
         });
+
+        releaseAutoScrollTimer = setTimeout(() => {
+          isAutoScrollingRef.current = false;
+        }, 700);
 
         // Ensure booking section is cleanly in view on mobile
         if (window.scrollY > 200) {
@@ -466,27 +477,49 @@ export default function App() {
       }
     }, 120);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      if (releaseAutoScrollTimer) clearTimeout(releaseAutoScrollTimer);
+      isAutoScrollingRef.current = false;
+    };
   }, [slots, loading, currentTab, selectedDate, todayIST, currentTimeIST]);
 
-  // Smoothly center the active date pill in the date selector bar
+  const cancelNextDayHold = () => {
+    if (bottomScrollTimerRef.current) {
+      clearTimeout(bottomScrollTimerRef.current);
+      bottomScrollTimerRef.current = null;
+    }
+    if (holdIntervalRef.current) {
+      clearInterval(holdIntervalRef.current);
+      holdIntervalRef.current = null;
+    }
+    setIsHoldingNextDay(false);
+    setHoldSecondsLeft(2);
+  };
+
+  // Smoothly center the active date pill and reset hold state on date/tab change
   useEffect(() => {
+    cancelNextDayHold();
+    userInteractedScrollRef.current = false;
     if (selectedDate) {
       const pill = document.getElementById(`date-pill-${selectedDate}`);
       if (pill) {
         pill.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
       }
     }
-  }, [selectedDate]);
+    return () => cancelNextDayHold();
+  }, [selectedDate, currentTab]);
 
   // Navigate to Next Day and align directly to the 12-1 AM slot
   const goToNextDay = () => {
     if (isTransitioningDateRef.current) return;
+    cancelNextDayHold();
     const currentIndex = dates.findIndex(d => toLocalDateString(d) === selectedDate);
     if (currentIndex >= 0 && currentIndex < dates.length - 1) {
       const nextDateObj = dates[currentIndex + 1];
       const nextDateStr = toLocalDateString(nextDateObj);
       isTransitioningDateRef.current = true;
+      userInteractedScrollRef.current = false;
 
       // Reset scroll position to top
       if (slotsContainerRef.current) {
@@ -506,56 +539,101 @@ export default function App() {
     }
   };
 
+  const startNextDayHold = () => {
+    if (isTransitioningDateRef.current || bottomScrollTimerRef.current || selectedSlot) return;
+    const currentIndex = dates.findIndex(d => toLocalDateString(d) === selectedDate);
+    if (currentIndex < 0 || currentIndex >= dates.length - 1) return;
+
+    setIsHoldingNextDay(true);
+    setHoldSecondsLeft(2);
+
+    const startedAt = Date.now();
+    holdIntervalRef.current = setInterval(() => {
+      const elapsed = Date.now() - startedAt;
+      const remaining = Math.max(1, Math.ceil((2000 - elapsed) / 1000));
+      setHoldSecondsLeft(remaining);
+    }, 200);
+
+    bottomScrollTimerRef.current = setTimeout(() => {
+      goToNextDay();
+    }, 2000);
+  };
+
+  const checkScrollPositionForHold = (container) => {
+    if (!container || isTransitioningDateRef.current || isAutoScrollingRef.current) return;
+    const isScrollable = container.scrollHeight > container.clientHeight + 20;
+    if (!isScrollable) return;
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom <= 10) {
+      if (userInteractedScrollRef.current) {
+        startNextDayHold();
+      }
+    } else if (bottomScrollTimerRef.current) {
+      cancelNextDayHold();
+    }
+  };
+
   const handleSlotsWheel = (e) => {
     if (isTransitioningDateRef.current) return;
     const container = slotsContainerRef.current;
     if (!container) return;
+    isAutoScrollingRef.current = false;
 
-    // Scrolling down (deltaY > 0)
-    if (e.deltaY > 5) {
-      const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 25;
-      if (isAtBottom) {
-        goToNextDay();
+    if (e.deltaY > 0) {
+      userInteractedScrollRef.current = true;
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (distanceFromBottom <= 18 && container.scrollHeight > container.clientHeight + 20) {
+        startNextDayHold();
       }
+    } else if (e.deltaY < 0) {
+      cancelNextDayHold();
     }
   };
 
   const handleSlotsTouchStart = (e) => {
     touchStartYRef.current = e.touches[0].clientY;
+    isAutoScrollingRef.current = false;
   };
 
   const handleSlotsTouchMove = (e) => {
     if (isTransitioningDateRef.current) return;
     const container = slotsContainerRef.current;
     if (!container) return;
+    isAutoScrollingRef.current = false;
 
     const currentY = e.touches[0].clientY;
     const deltaY = touchStartYRef.current - currentY; // positive when swiping up (scrolling down)
 
-    if (deltaY > 30) {
-      const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 25;
-      if (isAtBottom) {
-        goToNextDay();
+    if (deltaY > 15) {
+      userInteractedScrollRef.current = true;
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (distanceFromBottom <= 18 && container.scrollHeight > container.clientHeight + 20) {
+        startNextDayHold();
       }
+    } else if (deltaY < -15) {
+      cancelNextDayHold();
+    }
+  };
+
+  const handleSlotsPointerDown = (e) => {
+    if (e.target === e.currentTarget) {
+      isAutoScrollingRef.current = false;
+      userInteractedScrollRef.current = true;
+    }
+  };
+
+  const handleSlotsKeyDown = (e) => {
+    if (['ArrowDown', 'PageDown', 'End', ' '].includes(e.key)) {
+      isAutoScrollingRef.current = false;
+      userInteractedScrollRef.current = true;
+    } else if (['ArrowUp', 'PageUp', 'Home'].includes(e.key)) {
+      cancelNextDayHold();
     }
   };
 
   const handleSlotsScroll = (e) => {
-    if (isTransitioningDateRef.current) return;
-    const container = e.currentTarget;
-    const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight <= 8;
-    if (isAtBottom) {
-      if (bottomScrollTimerRef.current) clearTimeout(bottomScrollTimerRef.current);
-      bottomScrollTimerRef.current = setTimeout(() => {
-        if (container.scrollHeight - container.scrollTop - container.clientHeight <= 15) {
-          goToNextDay();
-        }
-      }, 300);
-    } else {
-      if (bottomScrollTimerRef.current) {
-        clearTimeout(bottomScrollTimerRef.current);
-      }
-    }
+    checkScrollPositionForHold(e.currentTarget);
   };
 
   // Fetch Today's Live Availability Teaser whenever Home tab is active
@@ -774,6 +852,7 @@ export default function App() {
   };
 
   const handleOpenBooking = async (slot) => {
+    cancelNextDayHold();
     if (slot.status === 'booked' || slot.status === 'blocked') return;
     
     // Prevent holding or paying for past slots
@@ -2203,6 +2282,8 @@ export default function App() {
                 onWheel={handleSlotsWheel}
                 onTouchStart={handleSlotsTouchStart}
                 onTouchMove={handleSlotsTouchMove}
+                onPointerDown={handleSlotsPointerDown}
+                onKeyDown={handleSlotsKeyDown}
                 onScroll={handleSlotsScroll}
                 className="grid grid-cols-2 gap-3 max-h-[55vh] overflow-y-auto pr-1 no-scrollbar pb-6 scroll-smooth"
               >
@@ -2287,7 +2368,7 @@ export default function App() {
                   );
                 })}
 
-                {/* Automatically advance to Next Day when scrolled past 11-12 PM */}
+                {/* Automatically advance to Next Day when scrolled past 11-12 PM and held for 2s */}
                 {(() => {
                   const currIdx = dates.findIndex(d => toLocalDateString(d) === selectedDate);
                   if (currIdx >= 0 && currIdx < dates.length - 1) {
@@ -2296,19 +2377,33 @@ export default function App() {
                     return (
                       <div 
                         onClick={goToNextDay}
-                        className="col-span-2 mt-2 p-3.5 border border-dashed border-[#22c55e]/30 bg-neutral-950/70 hover:bg-[#22c55e]/5 transition text-center flex items-center justify-between cursor-pointer group"
+                        className={`relative overflow-hidden col-span-2 mt-2 p-3.5 border border-dashed transition text-center flex items-center justify-between cursor-pointer group ${
+                          isHoldingNextDay
+                            ? 'border-[#22c55e] bg-[#22c55e]/10'
+                            : 'border-[#22c55e]/30 bg-neutral-950/70 hover:bg-[#22c55e]/5'
+                        }`}
                       >
-                        <div className="flex flex-col text-left">
+                        {isHoldingNextDay && (
+                          <>
+                            <div className="absolute inset-0 bg-[#22c55e]/15 animate-hold-progress pointer-events-none" />
+                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#22c55e] animate-hold-progress pointer-events-none" />
+                          </>
+                        )}
+                        <div className="relative z-10 flex flex-col text-left">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 group-hover:text-white transition">
-                            Next Day: {nextDateLabel}
+                            {isHoldingNextDay ? `Switching to ${nextDateLabel}...` : `Next Day: ${nextDateLabel}`}
                           </span>
                           <span className="text-xs font-black text-[#22c55e] tracking-tight">
                             12:00 AM – 01:00 AM Slot &rarr;
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5 text-[9px] text-neutral-500 font-bold uppercase tracking-wider border border-neutral-800 px-2 py-1 bg-neutral-900 group-hover:border-[#22c55e]/40 group-hover:text-[#22c55e] transition">
-                          <span>Scroll or Tap</span>
-                          <ArrowDown className="w-3 h-3 animate-bounce text-[#22c55e]" />
+                        <div className={`relative z-10 flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider border px-2 py-1 transition ${
+                          isHoldingNextDay
+                            ? 'border-[#22c55e] bg-[#22c55e]/20 text-[#22c55e]'
+                            : 'border-neutral-800 bg-neutral-900 text-neutral-500 group-hover:border-[#22c55e]/40 group-hover:text-[#22c55e]'
+                        }`}>
+                          <span>{isHoldingNextDay ? `Hold ${holdSecondsLeft}s...` : 'Hold 2s or Tap'}</span>
+                          <ArrowDown className={`w-3 h-3 text-[#22c55e] ${isHoldingNextDay ? 'animate-pulse' : 'animate-bounce'}`} />
                         </div>
                       </div>
                     );
